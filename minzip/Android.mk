@@ -15,6 +15,7 @@ LOCAL_C_INCLUDES := \
 LOCAL_STATIC_LIBRARIES := libselinux
 
 LOCAL_MODULE := libminzip
+LOCAL_MULTILIB := both
 
 LOCAL_CLANG := true
 

@@ -1,4 +1,9 @@
 /*
+* Copyright (C) 2014 MediaTek Inc.
+* Modification based on code covered by the mentioned copyright
+* and/or permission notice(s).
+*/
+/*
  * Copyright (C) 2008 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,3 +21,4 @@
 
 // TODO: Remove this file once we remove all places that include this file.
 #include "bootloader_message/include/bootloader_message/bootloader_message.h"
+#include "mt_bootloader.h"

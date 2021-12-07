@@ -1,3 +1,8 @@
+#
+# Copyright (C) 2014 MediaTek Inc.
+# Modification based on code covered by the mentioned copyright
+# and/or permission notice(s).
+#
 # Copyright (C) 2014 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,8 +29,10 @@ LOCAL_C_INCLUDES := $(LOCAL_PATH)/..
 
 LOCAL_MODULE := uncrypt
 
+LOCAL_C_INCLUDES += bootable/recovery
+
 LOCAL_STATIC_LIBRARIES := libbootloader_message libbase \
-                          liblog libfs_mgr libcutils \
+                          liblog libfs_mgr libcutils libmtdutils \
 
 LOCAL_INIT_RC := uncrypt.rc
 

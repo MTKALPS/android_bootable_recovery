@@ -1,4 +1,9 @@
 /*
+* Copyright (C) 2014 MediaTek Inc.
+* Modification based on code covered by the mentioned copyright
+* and/or permission notice(s).
+*/
+/*
  * Copyright (C) 2007 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -47,6 +52,7 @@
 #include "roots.h"
 #include "ui.h"
 #include "verifier.h"
+#include "mt_install.h"
 
 extern RecoveryUI* ui;
 
@@ -442,6 +448,10 @@ try_update_binary(const char* path, ZipArchive* zip, bool* wipe_cache,
         return INSTALL_ERROR;
     }
 
+    ret=INSTALL_SUCCESS;
+    if (mt_try_update_binary(ret, path))
+        return ret;
+
     return INSTALL_SUCCESS;
 }
 
@@ -450,9 +460,13 @@ really_install_package(const char *path, bool* wipe_cache, bool needs_mount,
                        std::vector<std::string>& log_buffer, int retry_count)
 {
     ui->SetBackground(RecoveryUI::INSTALLING_UPDATE);
+#if 0 //wschen 2012-07-10
     ui->Print("Finding update package...\n");
     // Give verification half the progress bar...
-    ui->SetProgressType(RecoveryUI::DETERMINATE);
+#else
+    LOGI("Finding update package...\n");
+#endif
+    ui->SetProgressType(RecoveryUI::INDETERMINATE);
     ui->ShowProgress(VERIFICATION_PROGRESS_FRACTION, VERIFICATION_PROGRESS_TIME);
     LOGI("Update location: %s\n", path);
 
@@ -461,20 +475,28 @@ really_install_package(const char *path, bool* wipe_cache, bool needs_mount,
 
     if (path && needs_mount) {
         if (path[0] == '@') {
-            ensure_path_mounted(path+1);
+            if (ensure_path_mounted(path+1) != 0) {
+                LOGE("Can't mount %s\n", path);
+                return INSTALL_CORRUPT;
+            }
         } else {
-            ensure_path_mounted(path);
+            if (ensure_path_mounted(path) != 0) {
+                LOGE("Can't mount %s\n", path);
+                return INSTALL_CORRUPT;
+            }
         }
     }
 
     MemMapping map;
     if (sysMapFile(path, &map) != 0) {
         LOGE("failed to map file\n");
+        mt_clear_bootloader_message();
         return INSTALL_CORRUPT;
     }
 
     // Verify package.
     if (!verify_package(map.addr, map.length)) {
+        mt_clear_bootloader_message();
         log_buffer.push_back(android::base::StringPrintf("error: %d", kZipVerificationFailure));
         sysReleaseMap(&map);
         return INSTALL_CORRUPT;
@@ -485,10 +507,16 @@ really_install_package(const char *path, bool* wipe_cache, bool needs_mount,
     int err = mzOpenZipArchive(map.addr, map.length, &zip);
     if (err != 0) {
         LOGE("Can't open %s\n(%s)\n", path, err != -1 ? strerror(err) : "bad");
+        mt_clear_bootloader_message();
         log_buffer.push_back(android::base::StringPrintf("error: %d", kZipOpenFailure));
-
         sysReleaseMap(&map);
         return INSTALL_CORRUPT;
+    }
+
+    int ret=INSTALL_SUCCESS;
+    if (mt_really_install_package(ret, path, needs_mount, &zip, &map)) {
+        sysReleaseMap(&map);
+        return ret;
     }
 
     // Verify and install the contents of the package.
@@ -502,6 +530,7 @@ really_install_package(const char *path, bool* wipe_cache, bool needs_mount,
     ui->Print("\n");
 
     sysReleaseMap(&map);
+    mt_really_install_package_external_modem(result, path);
 
     return result;
 }

@@ -14,6 +14,8 @@
 
 LOCAL_PATH := $(call my-dir)
 
+include $(LOCAL_PATH)/mt_common.mk
+
 include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES := fuse_sideload.cpp
@@ -73,6 +75,7 @@ LOCAL_STATIC_LIBRARIES := \
     libmtdutils \
     libminadbd \
     libfusesideload \
+    libpartition \
     libminui \
     libpng \
     libfs_mgr \
@@ -108,6 +111,8 @@ endif
 ifeq ($(BOARD_CACHEIMAGE_PARTITION_SIZE),)
 LOCAL_REQUIRED_MODULES := recovery-persist recovery-refresh
 endif
+
+include $(LOCAL_PATH)/mt_recovery.mk
 
 include $(BUILD_EXECUTABLE)
 

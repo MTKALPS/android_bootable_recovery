@@ -1,4 +1,9 @@
 /*
+* Copyright (C) 2014 MediaTek Inc.
+* Modification based on code covered by the mentioned copyright
+* and/or permission notice(s).
+*/
+/*
  * Copyright (C) 2009 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -133,6 +138,7 @@
 #include "zlib.h"
 #include "imgdiff.h"
 #include "utils.h"
+#include "bootimg.h"
 
 typedef struct {
   int type;             // CHUNK_NORMAL, CHUNK_DEFLATE
@@ -404,11 +410,18 @@ unsigned char* ReadImage(const char* filename,
   *num_chunks = 0;
   *chunks = NULL;
 
+  // Search the magic number 1f8b0800 only from the ramdisk page
+  // to avoid spurious occurance of the magic number in the kernel page.
+  struct boot_img_hdr *hdr = (struct boot_img_hdr*)img;
+  int kern_pages = (hdr->kernel_size + hdr->page_size - 1) / hdr->page_size;
+  unsigned char* p_ramdisk = img + (1 + kern_pages) * hdr->page_size;
+
   while (pos < sz) {
     unsigned char* p = img+pos;
 
     bool processed_deflate = false;
     if (sz - pos >= 4 &&
+        p >= p_ramdisk &&
         p[0] == 0x1f && p[1] == 0x8b &&
         p[2] == 0x08 &&    // deflate compression
         p[3] == 0x00) {    // no header flags
@@ -525,11 +538,13 @@ unsigned char* ReadImage(const char* filename,
       curr->data = p;
 
       for (curr->len = 0; curr->len < (sz - pos); ++curr->len) {
-        if (p[curr->len] == 0x1f &&
-            p[curr->len+1] == 0x8b &&
-            p[curr->len+2] == 0x08 &&
-            p[curr->len+3] == 0x00) {
-          break;
+        if (p + curr->len >= p_ramdisk)  {
+          if (p[curr->len] == 0x1f &&
+              p[curr->len+1] == 0x8b &&
+              p[curr->len+2] == 0x08 &&
+              p[curr->len+3] == 0x00) {
+            break;
+          }
         }
       }
       pos += curr->len;

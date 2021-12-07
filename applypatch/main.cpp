@@ -1,4 +1,9 @@
 /*
+* Copyright (C) 2014 MediaTek Inc.
+* Modification based on code covered by the mentioned copyright
+* and/or permission notice(s).
+*/
+/*
  * Copyright (C) 2009 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,6 +30,7 @@
 #include "applypatch.h"
 #include "edify/expr.h"
 #include "openssl/sha.h"
+#include "mt_applypatch.h"
 
 static int CheckMode(int argc, char** argv) {
     if (argc < 3) {
@@ -44,6 +50,13 @@ static int SpaceMode(int argc, char** argv) {
         return 1;
     }
     return CacheSizeCheck(bytes);
+}
+
+int TeeUpdateMode(int argc, char** argv) {
+    //if (false) {
+        //return 2;
+    //}
+    return TeeUpdate(argv[2],argv[3]);
 }
 
 // Parse arguments (which should be of the form "<sha1>:<filename>"
@@ -189,6 +202,8 @@ int main(int argc, char** argv) {
         result = CheckMode(argc, argv);
     } else if (strncmp(argv[1], "-s", 3) == 0) {
         result = SpaceMode(argc, argv);
+    } else if (strncmp(argv[1], "-t", 3) == 0) {
+        result = TeeUpdateMode(argc, argv);
     } else {
         result = PatchMode(argc, argv);
     }

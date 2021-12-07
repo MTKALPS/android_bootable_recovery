@@ -73,6 +73,7 @@ LOCAL_C_INCLUDES += $(LOCAL_PATH)/..
 # extension libs.
 
 inc := $(call intermediates-dir-for,PACKAGING,updater_extensions)/register.inc
+inc := $(call intermediates-dir-for,PACKAGING,updater_extensions,,,t)/register.inc
 
 # Encode the value of TARGET_RECOVERY_UPDATER_LIBS into the filename of the dependency.
 # So if TARGET_RECOVERY_UPDATER_LIBS is changed, a new dependency file will be generated.
@@ -95,6 +96,7 @@ $(inc) : $(inc_dep_file)
 	$(hide) echo "}" >> $@
 
 $(call intermediates-dir-for,EXECUTABLES,updater,,,$(TARGET_PREFER_32_BIT))/updater.o : $(inc)
+$(call intermediates-dir-for,EXECUTABLES,updater,,,t)/updater.o : $(inc)
 LOCAL_C_INCLUDES += $(dir $(inc))
 
 inc :=
@@ -104,4 +106,5 @@ LOCAL_MODULE := updater
 
 LOCAL_FORCE_STATIC_EXECUTABLE := true
 
+include $(LOCAL_PATH)/mt_updater.mk
 include $(BUILD_EXECUTABLE)

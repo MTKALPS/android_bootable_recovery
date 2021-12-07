@@ -1,4 +1,9 @@
 /*
+* Copyright (C) 2014 MediaTek Inc.
+* Modification based on code covered by the mentioned copyright
+* and/or permission notice(s).
+*/
+/*
  * Copyright (C) 2014 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -147,6 +152,8 @@ static GRSurface* adf_init(minui_backend *backend)
     pdata->format = DRM_FORMAT_BGRA8888;
 #elif defined(RECOVERY_RGBX)
     pdata->format = DRM_FORMAT_RGBX8888;
+#elif defined(RECOVERY_ABGR8888)
+    pdata->format = DRM_FORMAT_ABGR8888;
 #else
     pdata->format = DRM_FORMAT_RGB565;
 #endif

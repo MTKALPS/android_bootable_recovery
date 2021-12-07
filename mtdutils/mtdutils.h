@@ -1,4 +1,9 @@
 /*
+* Copyright (C) 2014 MediaTek Inc.
+* Modification based on code covered by the mentioned copyright
+* and/or permission notice(s).
+*/
+/*
  * Copyright (C) 2007 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -48,12 +53,18 @@ typedef struct MtdWriteContext MtdWriteContext;
 
 MtdReadContext *mtd_read_partition(const MtdPartition *);
 ssize_t mtd_read_data(MtdReadContext *, char *data, size_t data_len);
+ssize_t mtd_read_data_ex(MtdReadContext *ctx, char *data, size_t size, off64_t offset);
 void mtd_read_close(MtdReadContext *);
 
 MtdWriteContext *mtd_write_partition(const MtdPartition *);
 ssize_t mtd_write_data(MtdWriteContext *, const char *data, size_t data_len);
-off_t mtd_erase_blocks(MtdWriteContext *, int blocks);  /* 0 ok, -1 for all */
+off64_t mtd_erase_blocks(MtdWriteContext *, int blocks);  /* 0 ok, -1 for all */
+int mtd_write_block_ex(MtdWriteContext *ctx, const char *data, off64_t addr);
+int mtd_write_data_ex(MtdWriteContext *ctx, const char *data, size_t size, off64_t offset);
 int mtd_write_close(MtdWriteContext *);
+extern int mtd_part_to_number(const MtdPartition *partition);
+int mtd_write_ex(MtdWriteContext *ctx, const char *data, size_t size, off64_t offset);
+off64_t mtd_erase(MtdWriteContext *ctx, off64_t pos);
 
 #ifdef __cplusplus
 }

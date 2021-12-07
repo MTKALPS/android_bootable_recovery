@@ -1,4 +1,9 @@
 /*
+* Copyright (C) 2014 MediaTek Inc.
+* Modification based on code covered by the mentioned copyright
+* and/or permission notice(s).
+*/
+/*
  * Copyright (C) 2007 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +26,12 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/mount.h>
-
+#if 1 //wschen 2012-10-23
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#endif
+#include <unistd.h>
 #include "mounts.h"
 
 struct MountedVolume {
@@ -144,11 +154,65 @@ unmount_mounted_volume(const MountedVolume *volume)
      * to unmount a volume they already unmounted using this
      * function.
      */
+    sync();
     int ret = umount(volume->mount_point);
     if (ret == 0) {
+        sync();
         free_volume_internals(volume, 1);
         return 0;
     }
+
+#if 1 //wschen 2012-10-23
+
+      else {
+        DIR *dir, *dir1;
+        int fd;
+        int len, len1;
+        char buf[1025] ="";
+        char buf1[1025] ="";
+        char pid[1025] ="";
+        char file_path[1025] ="";
+        struct dirent *ptr, *ptr1;
+
+        printf("%s\n", strerror(errno));
+
+        dir = opendir("/proc/");
+        if (dir) {
+            while ((ptr = readdir(dir)) != NULL) {
+                if (ptr->d_name[0] >= '0' && ptr->d_name[0] <= '9') {
+                    snprintf(pid, sizeof(pid), "/proc/%s/cmdline", ptr->d_name);
+                    fd = open(pid, O_RDONLY);
+                    len1 = 0;
+                    if (fd != -1) {
+                        len1 = read(fd, buf1, sizeof(buf1)-1);
+                        close(fd);
+
+                        snprintf(pid, sizeof(pid), "/proc/%s/fd", ptr->d_name);
+
+                        dir1 = opendir(pid);
+
+                        if (dir1) {
+                            while ((ptr1 = readdir(dir1)) != NULL) {
+                                snprintf(file_path, sizeof(file_path), "/proc/%s/fd/%s", ptr->d_name, ptr1->d_name);
+                                len = readlink(file_path, buf, sizeof(buf)-1);
+                                if (len != -1) {
+                                    if (strstr(buf, volume->mount_point) == buf) {
+                                        if (len1) {
+                                            printf("process(%s):%s\n", ptr->d_name, buf1);
+                                        }
+                                        printf("found:%s\n", buf);
+                                    }
+                                }
+                            }
+                            closedir(dir1);
+                        }
+                    }
+                }
+            }
+            closedir(dir);
+        }
+    }
+#endif
     return ret;
 }
 

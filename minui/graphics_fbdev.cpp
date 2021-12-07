@@ -32,6 +32,7 @@
 
 #include "minui.h"
 #include "graphics.h"
+#include "mt_graphic_rotate.h"
 
 static GRSurface* fbdev_init(minui_backend*);
 static GRSurface* fbdev_flip(minui_backend*);
@@ -137,8 +138,12 @@ static GRSurface* fbdev_init(minui_backend* backend) {
     memset(gr_framebuffer[0].data, 0, gr_framebuffer[0].height * gr_framebuffer[0].row_bytes);
 
     /* check if we can use double buffering */
+    printf("[graphics] vi.yres * fi.line_length = %d * %d * 2 = %d, fi.smem_len=%d\n",
+        vi.yres, fi.line_length, vi.yres * fi.line_length * 2, fi.smem_len);
+
     if (vi.yres * fi.line_length * 2 <= fi.smem_len) {
         double_buffered = true;
+        printf("[graphics] double buffered\n");
 
         memcpy(gr_framebuffer+1, gr_framebuffer, sizeof(GRSurface));
         gr_framebuffer[1].data = gr_framebuffer[0].data +
@@ -148,7 +153,7 @@ static GRSurface* fbdev_init(minui_backend* backend) {
 
     } else {
         double_buffered = false;
-
+        printf("[graphics] without double buffer\n");
         // Without double-buffering, we allocate RAM for a buffer to
         // draw in, and then "flipping" the buffer consists of a
         // memcpy from the buffer we allocated to the framebuffer.
@@ -168,13 +173,16 @@ static GRSurface* fbdev_init(minui_backend* backend) {
 
     printf("framebuffer: %d (%d x %d)\n", fb_fd, gr_draw->width, gr_draw->height);
 
+#if 0 // to avoid display blink due to display driver not disable backlight after kernel standardization, so that temp state between display suspend/resume is shown
     fbdev_blank(backend, true);
     fbdev_blank(backend, false);
+#endif
 
-    return gr_draw;
+    return rotate_canvas_get(gr_draw);
 }
 
 static GRSurface* fbdev_flip(minui_backend* backend __unused) {
+    rotate_surface(gr_draw, rotate_canvas_get(gr_draw));
     if (double_buffered) {
         // Change gr_draw to point to the buffer currently displayed,
         // then flip the driver so we're displaying the other buffer
@@ -186,13 +194,13 @@ static GRSurface* fbdev_flip(minui_backend* backend __unused) {
         memcpy(gr_framebuffer[0].data, gr_draw->data,
                gr_draw->height * gr_draw->row_bytes);
     }
-    return gr_draw;
+    return rotate_canvas_get(gr_draw);
 }
 
 static void fbdev_exit(minui_backend* backend __unused) {
     close(fb_fd);
     fb_fd = -1;
-
+    rotate_canvas_exit();
     if (!double_buffered && gr_draw) {
         free(gr_draw->data);
         free(gr_draw);

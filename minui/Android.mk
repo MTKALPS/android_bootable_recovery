@@ -1,6 +1,10 @@
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 
+#ifdef MTK_LCM_PHYSICAL_ROTATION
+LOCAL_CFLAGS += -DMTK_LCM_PHYSICAL_ROTATION=\"$(MTK_LCM_PHYSICAL_ROTATION)\"
+#endif
+
 LOCAL_SRC_FILES := \
     events.cpp \
     graphics.cpp \
@@ -8,6 +12,8 @@ LOCAL_SRC_FILES := \
     graphics_drm.cpp \
     graphics_fbdev.cpp \
     resources.cpp \
+
+LOCAL_SRC_FILES += mt_graphic_rotate.cpp
 
 LOCAL_WHOLE_STATIC_LIBRARIES += libadf
 LOCAL_WHOLE_STATIC_LIBRARIES += libdrm

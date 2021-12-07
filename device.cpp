@@ -21,10 +21,20 @@ static const char* MENU_ITEMS[] = {
     "Reboot to bootloader",
     "Apply update from ADB",
     "Apply update from SD card",
+#if defined(SUPPORT_SDCARD2) && !defined(MTK_SHARED_SDCARD) //wschen 2012-11-15
+    "Apply update from sdcard2",
+#endif //SUPPORT_SDCARD2
     "Wipe data/factory reset",
 #ifndef AB_OTA_UPDATER
     "Wipe cache partition",
 #endif  // !AB_OTA_UPDATER
+#ifdef SUPPORT_DATA_BACKUP_RESTORE //wschen 2011-03-09
+    "Backup user data",
+    "Restore user data",
+#endif
+#ifdef ROOT_CHECK
+    "Root integrity check",
+#endif
     "Mount /system",
     "View recovery logs",
     "Run graphics test",
@@ -37,10 +47,20 @@ static const Device::BuiltinAction MENU_ACTIONS[] = {
     Device::REBOOT_BOOTLOADER,
     Device::APPLY_ADB_SIDELOAD,
     Device::APPLY_SDCARD,
+#if defined(SUPPORT_SDCARD2) && !defined(MTK_SHARED_SDCARD)
+    Device::APPLY_SDCARD2,
+#endif // defined(SUPPORT_SDCARD2) && !defined(MTK_SHARED_SDCARD)
     Device::WIPE_DATA,
 #ifndef AB_OTA_UPDATER
     Device::WIPE_CACHE,
 #endif  // !AB_OTA_UPDATER
+#ifdef SUPPORT_DATA_BACKUP_RESTORE
+    Device::USER_DATA_BACKUP,
+    Device::USER_DATA_RESTORE,
+#endif // SUPPORT_DATA_BACKUP_RESTORE
+#ifdef ROOT_CHECK
+    Device::CHECK_ROOT,
+#endif // ROOT_CHECK
     Device::MOUNT_SYSTEM,
     Device::VIEW_RECOVERY_LOGS,
     Device::RUN_GRAPHICS_TEST,
@@ -56,8 +76,33 @@ const char* const* Device::GetMenuItems() {
   return MENU_ITEMS;
 }
 
+
 Device::BuiltinAction Device::InvokeMenuItem(int menu_position) {
   return menu_position < 0 ? NO_ACTION : MENU_ACTIONS[menu_position];
+}
+
+static const char* FORCE_ITEMS[] =  {"Reboot system now",
+                                     "Apply sdcard:update.zip",
+#if defined(SUPPORT_SDCARD2) && !defined(MTK_SHARED_SDCARD)
+                                     "Apply sdcard2:update.zip",
+#endif //SUPPORT_SDCARD2
+                                     NULL };
+
+static const Device::BuiltinAction MENU_FORCE_ACTIONS[] = {
+    Device::REBOOT,
+    Device::APPLY_SDCARD,
+#if defined(SUPPORT_SDCARD2) && !defined(MTK_SHARED_SDCARD)
+    Device::APPLY_SDCARD2,
+#endif // defined(SUPPORT_SDCARD2) && !defined(MTK_SHARED_SDCARD)
+};
+
+
+const char* const* Device::GetForceMenuItems() {
+  return FORCE_ITEMS;
+}
+
+Device::BuiltinAction Device::InvokeForceMenuItem(int menu_position) {
+  return menu_position < 0 ? NO_ACTION : MENU_FORCE_ACTIONS[menu_position];
 }
 
 int Device::HandleMenuKey(int key, int visible) {

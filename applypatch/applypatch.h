@@ -1,4 +1,9 @@
 /*
+* Copyright (C) 2014 MediaTek Inc.
+* Modification based on code covered by the mentioned copyright
+* and/or permission notice(s).
+*/
+/*
  * Copyright (C) 2008 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -82,5 +87,8 @@ int ApplyImagePatch(const unsigned char* old_data, ssize_t old_size,
 
 // freecache.cpp
 int MakeFreeSpaceOnCache(size_t bytes_needed);
+
+// mt_applypatch.cpp
+int WriteToPartition(const unsigned char* data, size_t len, const char* target);
 
 #endif

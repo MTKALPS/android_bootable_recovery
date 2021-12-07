@@ -8,6 +8,8 @@ LOCAL_SRC_FILES := \
 LOCAL_MODULE := libmtdutils
 LOCAL_CLANG := true
 
+LOCAL_MULTILIB := both
+
 include $(BUILD_STATIC_LIBRARY)
 
 include $(CLEAR_VARS)

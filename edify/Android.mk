@@ -1,3 +1,8 @@
+#
+# Copyright (C) 2014 MediaTek Inc.
+# Modification based on code covered by the mentioned copyright
+# and/or permission notice(s).
+#
 # Copyright 2009 The Android Open Source Project
 
 LOCAL_PATH := $(call my-dir)
@@ -38,6 +43,7 @@ LOCAL_CPPFLAGS := -Wno-unused-parameter
 LOCAL_CPPFLAGS += -Wno-deprecated-register
 LOCAL_MODULE := libedify
 LOCAL_CLANG := true
+LOCAL_MULTILIB := both
 LOCAL_C_INCLUDES += $(LOCAL_PATH)/..
 LOCAL_STATIC_LIBRARIES += libbase
 

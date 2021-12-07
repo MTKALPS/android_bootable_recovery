@@ -1,4 +1,9 @@
 /*
+* Copyright (C) 2014 MediaTek Inc.
+* Modification based on code covered by the mentioned copyright
+* and/or permission notice(s).
+*/
+/*
  * Copyright (C) 2007 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,8 +27,29 @@
 #include "common.h"
 #include "minzip/Zip.h"
 
+#if 0
 enum { INSTALL_SUCCESS, INSTALL_ERROR, INSTALL_CORRUPT, INSTALL_NONE, INSTALL_SKIPPED,
         INSTALL_RETRY };
+#else
+enum
+{
+    INSTALL_SUCCESS,
+    INSTALL_ERROR,
+    INSTALL_CORRUPT,
+    INSTALL_NONE,
+    INSTALL_NO_SDCARD,
+    INSTALL_NO_KEY,
+    INSTALL_NO_UPDATE_PACKAGE,
+    INSTALL_SIGNATURE_ERROR,
+    INSTALL_FILE_SYSTEM_ERROR,
+    INSTALL_SECURE_CHECK_FAIL,
+    INSTALL_SECURE_INFO_NOT_FOUND,
+    INSTALL_PROMPT_FORCE_UPGRADE,
+    INSTALL_SKIPPED,
+    INSTALL_RETRY,
+};
+#endif
+
 // Install the package specified by root_path.  If INSTALL_SUCCESS is
 // returned and *wipe_cache is true on exit, caller should wipe the
 // cache partition.

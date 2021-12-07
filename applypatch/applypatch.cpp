@@ -1,4 +1,9 @@
 /*
+* Copyright (C) 2014 MediaTek Inc.
+* Modification based on code covered by the mentioned copyright
+* and/or permission notice(s).
+*/
+/*
  * Copyright (C) 2008 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -36,6 +41,8 @@
 #include "edify/expr.h"
 #include "ota_io.h"
 #include "print_sha1.h"
+#include "mt_applypatch.h"
+#include "mt_partition.h"
 
 static int LoadPartitionContents(const char* filename, FileContents* file);
 static ssize_t FileSink(const unsigned char* data, ssize_t len, void* token);
@@ -147,6 +154,12 @@ static int LoadPartitionContents(const char* filename, FileContents* file) {
 
     MtdReadContext* ctx = NULL;
     FILE* dev = NULL;
+    char *dev_path = get_partition_path(partition);
+
+    if(dev_path == NULL) {
+       printf("Error: get_partition_path %s fail\n", partition);
+       return -1;
+    }
 
     switch (type) {
         case MTD: {
@@ -155,28 +168,39 @@ static int LoadPartitionContents(const char* filename, FileContents* file) {
                 mtd_partitions_scanned = true;
             }
 
-            const MtdPartition* mtd = mtd_find_partition_by_name(partition);
+            const MtdPartition* mtd = mtd_find_partition_by_name(dev_path);
             if (mtd == NULL) {
-                printf("mtd partition \"%s\" not found (loading %s)\n", partition, filename);
+                printf("mtd partition \"%s\" not found (loading %s)\n",
+                       dev_path, filename);
+                if (dev_path)
+                    free(dev_path);
                 return -1;
             }
 
             ctx = mtd_read_partition(mtd);
             if (ctx == NULL) {
-                printf("failed to initialize read of mtd partition \"%s\"\n", partition);
+                printf("failed to initialize read of mtd partition \"%s\"\n",
+                       dev_path);
+                if (dev_path)
+                    free(dev_path);
                 return -1;
             }
             break;
         }
 
         case EMMC:
-            dev = ota_fopen(partition, "rb");
+            dev = ota_fopen(dev_path, "rb");
             if (dev == NULL) {
-                printf("failed to open emmc partition \"%s\": %s\n", partition, strerror(errno));
+                printf("failed to open emmc partition \"%s\": %s\n",
+                       dev_path, strerror(errno));
+                if (dev_path)
+                    free(dev_path);
                 return -1;
             }
     }
 
+    if (dev_path)
+        free(dev_path);
     SHA_CTX sha_ctx;
     SHA1_Init(&sha_ctx);
     uint8_t parsed_sha[SHA_DIGEST_LENGTH];
@@ -325,6 +349,9 @@ int WriteToPartition(const unsigned char* data, size_t len, const char* target) 
     }
     const char* partition = pieces[1].c_str();
 
+    char *dev_path = get_partition_path(partition);
+    partition = dev_path;
+
     switch (type) {
         case MTD: {
             if (!mtd_partitions_scanned) {
@@ -335,12 +362,14 @@ int WriteToPartition(const unsigned char* data, size_t len, const char* target) 
             const MtdPartition* mtd = mtd_find_partition_by_name(partition);
             if (mtd == NULL) {
                 printf("mtd partition \"%s\" not found for writing\n", partition);
+                free(dev_path);
                 return -1;
             }
 
             MtdWriteContext* ctx = mtd_write_partition(mtd);
             if (ctx == NULL) {
                 printf("failed to init mtd partition \"%s\" for writing\n", partition);
+                free(dev_path);
                 return -1;
             }
 
@@ -348,17 +377,20 @@ int WriteToPartition(const unsigned char* data, size_t len, const char* target) 
             if (written != len) {
                 printf("only wrote %zu of %zu bytes to MTD %s\n", written, len, partition);
                 mtd_write_close(ctx);
+                free(dev_path);
                 return -1;
             }
 
             if (mtd_erase_blocks(ctx, -1) < 0) {
                 printf("error finishing mtd write of %s\n", partition);
                 mtd_write_close(ctx);
+                free(dev_path);
                 return -1;
             }
 
             if (mtd_write_close(ctx)) {
                 printf("error closing mtd write of %s\n", partition);
+                free(dev_path);
                 return -1;
             }
             break;
@@ -370,12 +402,15 @@ int WriteToPartition(const unsigned char* data, size_t len, const char* target) 
             int fd = ota_open(partition, O_RDWR | O_SYNC);
             if (fd < 0) {
                 printf("failed to open %s: %s\n", partition, strerror(errno));
+                free(dev_path);
                 return -1;
             }
 
             for (size_t attempt = 0; attempt < 2; ++attempt) {
                 if (TEMP_FAILURE_RETRY(lseek(fd, start, SEEK_SET)) == -1) {
                     printf("failed seek on %s: %s\n", partition, strerror(errno));
+                    ota_close(fd);
+                    free(dev_path);
                     return -1;
                 }
                 while (start < len) {
@@ -385,12 +420,16 @@ int WriteToPartition(const unsigned char* data, size_t len, const char* target) 
                     ssize_t written = TEMP_FAILURE_RETRY(ota_write(fd, data+start, to_write));
                     if (written == -1) {
                         printf("failed write writing to %s: %s\n", partition, strerror(errno));
+                        close(fd);
+                        free(dev_path);
                         return -1;
                     }
                     start += written;
                 }
                 if (ota_fsync(fd) != 0) {
                    printf("failed to sync to %s (%s)\n", partition, strerror(errno));
+                    ota_close(fd);
+                   free(dev_path);
                    return -1;
                 }
                 if (ota_close(fd) != 0) {
@@ -400,6 +439,7 @@ int WriteToPartition(const unsigned char* data, size_t len, const char* target) 
                 fd = ota_open(partition, O_RDONLY);
                 if (fd < 0) {
                    printf("failed to reopen %s for verify (%s)\n", partition, strerror(errno));
+                   free(dev_path);
                    return -1;
                 }
 
@@ -419,6 +459,8 @@ int WriteToPartition(const unsigned char* data, size_t len, const char* target) 
                 if (TEMP_FAILURE_RETRY(lseek(fd, 0, SEEK_SET)) == -1) {
                     printf("failed to seek back to beginning of %s: %s\n",
                            partition, strerror(errno));
+                    close(fd);
+                    free(dev_path);
                     return -1;
                 }
                 unsigned char buffer[4096];
@@ -436,6 +478,8 @@ int WriteToPartition(const unsigned char* data, size_t len, const char* target) 
                         if (read_count == -1) {
                             printf("verify read error %s at %zu: %s\n",
                                    partition, p, strerror(errno));
+                            close(fd);
+                            free(dev_path);
                             return -1;
                         }
                         if (static_cast<size_t>(read_count) < to_read) {
@@ -461,21 +505,23 @@ int WriteToPartition(const unsigned char* data, size_t len, const char* target) 
 
             if (!success) {
                 printf("failed to verify after all attempts\n");
+                close(fd);
+                free(dev_path);
                 return -1;
             }
 
             if (ota_close(fd) != 0) {
                 printf("error closing %s (%s)\n", partition, strerror(errno));
+                free(dev_path);
                 return -1;
             }
             sync();
             break;
         }
     }
-
+    free(dev_path);
     return 0;
 }
-
 
 // Take a string 'str' of 40 hex digits and parse it into the 20
 // byte array 'digest'.  'str' may contain only the digest or be of
@@ -698,7 +744,49 @@ int applypatch(const char* source_filename,
         if (copy_patch_value == NULL) {
             // fail.
             printf("copy file doesn't match source SHA-1s either\n");
+#if 0
             return 1;
+#else
+            if (memcmp(copy_file.sha1, target_sha1, SHA_DIGEST_LENGTH) == 0) {
+                printf("use cache temp file to replace \"%s\"\n", target_filename);
+
+                if (strncmp(target_filename, "MTD:", 4) == 0 || strncmp(target_filename, "EMMC:", 5) == 0) {
+                    if (WriteToPartition(copy_file.data.data(), copy_file.data.size(), target_filename) != 0) {
+                        printf("write of patched data to %s failed\n", target_filename);
+                        return 1;
+                    }
+                    //everything is fine
+                    unlink(CACHE_TEMP_SOURCE);
+                    sync();
+                    return 0;
+                } else {
+                    if (SaveFileContents(target_filename, &copy_file) < 0) {
+                        printf("failed to copy back %s\n", target_filename);
+                        return 1;
+                    } else {
+                        //copy success
+
+                        if (LoadFileContents(target_filename, &source_file) == 0) {
+                            if (memcmp(source_file.sha1, target_sha1, SHA_DIGEST_LENGTH) == 0) {
+                                //everything is fine
+                                unlink(CACHE_TEMP_SOURCE);
+                                sync();
+                                return 0;
+                            } else {
+                                printf("copied target file (%s) SHA1 does not match\n", target_filename);
+                                return 1;
+                            }
+                        } else {
+                            printf("failed to read copied target file (%s)\n", target_filename);
+                            return 1;
+                        }
+                    }
+                }
+            } else {
+                printf("cache temp file doesn't match target SHA-1s (%s)\n", target_filename);
+                return 1;
+            }
+#endif
         }
     }
 
@@ -828,6 +916,7 @@ static int GenerateTarget(FileContents* source_file,
 
             // We still write the original source to cache, in case
             // the partition write is interrupted.
+            if (source_patch_value != NULL) { //wschen 2013-05-24 must check the source is complete
             if (MakeFreeSpaceOnCache(source_file->data.size()) < 0) {
                 printf("not enough free space on /cache\n");
                 return 1;
@@ -835,6 +924,7 @@ static int GenerateTarget(FileContents* source_file,
             if (SaveFileContents(CACHE_TEMP_SOURCE, source_file) < 0) {
                 printf("failed to back up source file\n");
                 return 1;
+            }
             }
             made_copy = 1;
             retry = 0;
@@ -884,8 +974,29 @@ static int GenerateTarget(FileContents* source_file,
                 size_t free_space = FreeSpaceForFile(target_fs.c_str());
                 printf("(now %zu bytes free for target) ", free_space);
             }
+
+#if 1 //wschen 2013-05-24 still backup file to cache
+
+            if (enough_space && (source_patch_value != NULL)) {
+                if (strncmp(source_filename, "MTD:", 4) && strncmp(source_filename, "EMMC:", 5)) {
+                    if (MakeFreeSpaceOnCache(source_file->data.size()) == 0) {
+                        if (SaveFileContents(CACHE_TEMP_SOURCE, source_file) == 0) {
+                            made_copy = 1;
+                        }
+                    }
+                }
+            }
+#endif
         }
 
+
+#if 1 //wschen 2013-05-23
+
+        if (patch->data == NULL) {
+            printf("patch data is invalid\n");
+            return 1;
+        }
+#endif
 
         SinkFn sink = NULL;
         void* token = NULL;
@@ -988,6 +1099,10 @@ static int GenerateTarget(FileContents* source_file,
     if (made_copy) {
         unlink(CACHE_TEMP_SOURCE);
     }
+
+#if 1 //wschen 2013-05-23
+    sync();
+#endif
 
     // Success!
     return 0;

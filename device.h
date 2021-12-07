@@ -1,4 +1,9 @@
 /*
+* Copyright (C) 2014 MediaTek Inc.
+* Modification based on code covered by the mentioned copyright
+* and/or permission notice(s).
+*/
+/*
  * Copyright (C) 2011 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -69,12 +74,17 @@ class Device {
         VIEW_RECOVERY_LOGS = 9,
         MOUNT_SYSTEM = 10,
         RUN_GRAPHICS_TEST = 11,
+        APPLY_SDCARD2 = 32,
+        USER_DATA_BACKUP = 33,
+        USER_DATA_RESTORE = 34,
+        CHECK_ROOT = 35,
     };
 
     // Return the list of menu items (an array of strings,
     // NULL-terminated).  The menu_position passed to InvokeMenuItem
     // will correspond to the indexes into this array.
     virtual const char* const* GetMenuItems();
+    virtual const char* const* GetForceMenuItems();
 
     // Perform a recovery action selected from the menu.
     // 'menu_position' will be the item number of the selected menu
@@ -86,7 +96,7 @@ class Device {
     // value.  If it is an action specific to your device, you
     // actually perform it here and return NO_ACTION.
     virtual BuiltinAction InvokeMenuItem(int menu_position);
-
+    virtual BuiltinAction InvokeForceMenuItem(int menu_position);
     static const int kNoAction = -1;
     static const int kHighlightUp = -2;
     static const int kHighlightDown = -3;

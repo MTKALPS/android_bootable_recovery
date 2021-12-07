@@ -1,3 +1,8 @@
+#
+# Copyright (C) 2014 MediaTek Inc.
+# Modification based on code covered by the mentioned copyright
+# and/or permission notice(s).
+#
 # Copyright (C) 2008 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,13 +20,17 @@
 LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
+MEDIATEK_RECOVERY_PATH := vendor/mediatek/proprietary/bootable/recovery
 
 LOCAL_CLANG := true
 LOCAL_SRC_FILES := applypatch.cpp bspatch.cpp freecache.cpp imgpatch.cpp utils.cpp
+LOCAL_SRC_FILES += mt_applypatch.cpp
 LOCAL_MODULE := libapplypatch
+LOCAL_MULTILIB := both
 LOCAL_MODULE_TAGS := eng
 LOCAL_C_INCLUDES += bootable/recovery
 LOCAL_STATIC_LIBRARIES += libbase libotafault libmtdutils libcrypto_static libbz libz
+LOCAL_C_INCLUDES += $(MEDIATEK_RECOVERY_PATH)/utils/include
 
 include $(BUILD_STATIC_LIBRARY)
 
@@ -59,6 +68,7 @@ LOCAL_STATIC_LIBRARIES += libapplypatch libbase libotafault libmtdutils libcrypt
                           libedify \
 
 LOCAL_SHARED_LIBRARIES += libz libcutils libc
+LOCAL_STATIC_LIBRARIES += libpartition
 
 include $(BUILD_EXECUTABLE)
 
@@ -68,7 +78,7 @@ LOCAL_CLANG := true
 LOCAL_SRC_FILES := imgdiff.cpp utils.cpp bsdiff.cpp
 LOCAL_MODULE := imgdiff
 LOCAL_FORCE_STATIC_EXECUTABLE := true
-LOCAL_C_INCLUDES += external/zlib external/bzip2
+LOCAL_C_INCLUDES += external/zlib external/bzip2 system/core/mkbootimg
 LOCAL_STATIC_LIBRARIES += libz libbz
 
 include $(BUILD_HOST_EXECUTABLE)

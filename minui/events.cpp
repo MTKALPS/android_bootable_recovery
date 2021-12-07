@@ -27,8 +27,8 @@
 
 #include "minui.h"
 
-#define MAX_DEVICES 16
-#define MAX_MISC_FDS 16
+#define MAX_DEVICES 64
+#define MAX_MISC_FDS 64
 
 #define BITS_PER_LONG (sizeof(unsigned long) * 8)
 #define BITS_TO_LONGS(x) (((x) + BITS_PER_LONG - 1) / BITS_PER_LONG)

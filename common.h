@@ -46,4 +46,6 @@ void ui_print(const char* format, ...);
 
 bool is_ro_debuggable();
 
+#include "mt_common.h"
+
 #endif  // RECOVERY_COMMON_H

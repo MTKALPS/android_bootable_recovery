@@ -1,4 +1,9 @@
 /*
+* Copyright (C) 2014 MediaTek Inc.
+* Modification based on code covered by the mentioned copyright
+* and/or permission notice(s).
+*/
+/*
  * Copyright (C) 2011 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -42,6 +47,7 @@
 #include "ui.h"
 
 #define TEXT_INDENT     4
+
 
 // Return the current time as a double (including fractions of a second).
 static double now() {
@@ -320,7 +326,7 @@ void ScreenRecoveryUI::draw_screen_locked() {
                 } else {
                     gr_text(4, y, menu_[i], false);
                 }
-                y += char_height_ + 4;
+                y += char_height_+4;
             }
             DrawHorizontalRule(&y);
         }
@@ -458,7 +464,9 @@ void ScreenRecoveryUI::Init() {
     if (gr_fb_height() > PixelsFromDp(800)) ++layout_;
 
     gr_font_size(&char_width_, &char_height_);
-    text_rows_ = gr_fb_height() / char_height_;
+
+    //Subtract some rows so screen could support number of text_rows
+    text_rows_ = ((gr_fb_height() / char_height_) - 10) ;
     text_cols_ = gr_fb_width() / char_width_;
 
     text_ = Alloc2d(text_rows_, text_cols_ + 1);

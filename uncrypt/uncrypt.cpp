@@ -1,4 +1,9 @@
 /*
+* Copyright (C) 2014 MediaTek Inc.
+* Modification based on code covered by the mentioned copyright
+* and/or permission notice(s).
+*/
+/*
  * Copyright (C) 2014 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -117,6 +122,7 @@
 
 #define LOG_TAG "uncrypt"
 #include <log/log.h>
+#include "common.h"
 
 #include "error_code.h"
 #include "unique_fd.h"
@@ -429,6 +435,7 @@ static int uncrypt(const char* input_path, const char* map_file, const int socke
 
     bool encryptable;
     bool encrypted;
+
     const char* blk_dev = find_block_device(path, &encryptable, &encrypted);
     if (blk_dev == NULL) {
         ALOGE("failed to find block device for %s", path);

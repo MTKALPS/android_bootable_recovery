@@ -1,4 +1,9 @@
 /*
+* Copyright (C) 2014 MediaTek Inc.
+* Modification based on code covered by the mentioned copyright
+* and/or permission notice(s).
+*/
+/*
  * Copyright (C) 2007 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,6 +34,9 @@
 #include <string.h>
 #include <sys/klog.h>
 #include <sys/stat.h>
+#if 1
+#include <sys/statfs.h>
+#endif
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -67,6 +75,9 @@
 #include "unique_fd.h"
 #include "screen_ui.h"
 
+#include "mt_recovery.h"
+#include "mt_partition.h"
+
 struct selabel_handle *sehandle;
 
 static const struct option OPTIONS[] = {
@@ -80,6 +91,7 @@ static const struct option OPTIONS[] = {
   { "sideload_auto_reboot", no_argument, NULL, 'a' },
   { "just_exit", no_argument, NULL, 'x' },
   { "locale", required_argument, NULL, 'l' },
+  MT_OPTION
   { "stages", required_argument, NULL, 'g' },
   { "shutdown_after", no_argument, NULL, 'p' },
   { "reason", required_argument, NULL, 'r' },
@@ -113,7 +125,7 @@ static const char *LAST_LOG_FILE = "/cache/recovery/last_log";
 static const int KEEP_LOG_COUNT = 10;
 // We will try to apply the update package 5 times at most in case of an I/O error.
 static const int EIO_RETRY_COUNT = 4;
-static const int BATTERY_READ_TIMEOUT_IN_SEC = 10;
+static const int BATTERY_READ_TIMEOUT_IN_SEC = 20;
 // GmsCore enters recovery mode to install package when having enough battery
 // percentage. Normally, the threshold is 40% without charger and 20% with charger.
 // So we should check battery with a slightly lower limitation.
@@ -342,6 +354,15 @@ get_args(int *argc, char ***argv) {
             LOGE("Bad boot message\n\"%.20s\"\n", boot.recovery);
         }
     }
+#if 1
+      else {
+          ensure_path_mounted("/cache");
+    }
+
+    if (check_otaupdate_done()) {
+        return;
+    }
+#endif
 
     // --- if that doesn't work, try the command file (if we have /cache).
     if (*argc <= 1 && has_cache) {
@@ -366,6 +387,9 @@ get_args(int *argc, char ***argv) {
             check_and_fclose(fp, COMMAND_FILE);
             LOGI("Got arguments from %s\n", COMMAND_FILE);
         }
+        else  {
+            LOGI("Open %s fail errno = %s\n", COMMAND_FILE,strerror(errno));
+        }
     }
 
     // --> write the arguments we have back into the bootloader control block
@@ -376,6 +400,10 @@ get_args(int *argc, char ***argv) {
     for (i = 1; i < *argc; ++i) {
         strlcat(boot.recovery, (*argv)[i], sizeof(boot.recovery));
         strlcat(boot.recovery, "\n", sizeof(boot.recovery));
+    }
+
+    if (stage) {
+        snprintf(boot.stage, sizeof(boot.stage), "%s", stage);
     }
     if (!write_bootloader_message(boot, &err)) {
         LOGE("%s\n", err.c_str());
@@ -426,7 +454,11 @@ static void copy_log_file_to_pmsg(const char* source, const char* destination) {
 // How much of the temp log we have copied to the copy in cache.
 static long tmplog_offset = 0;
 
+#if 0
 static void copy_log_file(const char* source, const char* destination, bool append) {
+#else
+void copy_log_file(const char* source, const char* destination, bool append) {
+#endif
     FILE* dest_fp = fopen_path(destination, append ? "a" : "w");
     if (dest_fp == nullptr) {
         LOGE("Can't open %s\n", destination);
@@ -481,7 +513,11 @@ static void rotate_logs(int max) {
     }
 }
 
+#if 0
 static void copy_logs() {
+#else
+void copy_logs() {
+#endif
     // We only rotate and record the log of the current session if there are
     // actual attempts to modify the flash, such as wipes, installs from BCB
     // or menu selections. This is to avoid unnecessary rotation (and
@@ -519,7 +555,11 @@ static void copy_logs() {
 // copy our log file to cache as well (for the system to read), and
 // record any intent we were asked to communicate back to the system.
 // this function is idempotent: call it as many times as you like.
+#if 0
 static void
+#else
+void
+#endif
 finish_recovery(const char *send_intent) {
     // By this point, we're ready to return to the main system...
     if (send_intent != NULL && has_cache) {
@@ -562,7 +602,9 @@ finish_recovery(const char *send_intent) {
         if (ensure_path_mounted(COMMAND_FILE) != 0 || (unlink(COMMAND_FILE) && errno != ENOENT)) {
             LOGW("Can't unlink %s\n", COMMAND_FILE);
         }
+#if 0
         ensure_path_unmounted(CACHE_ROOT);
+#endif
     }
 
     sync();  // For good measure.
@@ -575,7 +617,11 @@ typedef struct _saved_log_file {
     struct _saved_log_file* next;
 } saved_log_file;
 
+#if 0
 static bool erase_volume(const char* volume) {
+#else
+bool erase_volume(const char* volume) {
+#endif
     bool is_cache = (strcmp(volume, CACHE_ROOT) == 0);
     bool is_data = (strcmp(volume, DATA_ROOT) == 0);
 
@@ -681,7 +727,11 @@ static bool erase_volume(const char* volume) {
     return (result == 0);
 }
 
+#if 0
 static int
+#else
+int
+#endif
 get_menu_selection(const char* const * headers, const char* const * items,
                    int menu_only, int initial_selection, Device* device) {
     // throw away keys pressed previously, so user doesn't
@@ -736,13 +786,38 @@ static int compare_string(const void* a, const void* b) {
 }
 
 // Returns a malloc'd path, or NULL.
+#if 0
 static char* browse_directory(const char* path, Device* device) {
+#else
+char* browse_directory(const char* path, Device* device) {
+#endif
     ensure_path_mounted(path);
+    int res = 0;
+    int sharedSD_mount_data = 0;
+    const char* data_path ="/data";
+    res = ensure_path_mounted(path);
 
-    DIR* d = opendir(path);
-    if (d == NULL) {
-        LOGE("error opening %s: %s\n", path, strerror(errno));
-        return NULL;
+#if defined(MTK_SHARED_SDCARD)
+    if (res != 0) {
+        res = ensure_path_mounted(data_path);
+        sharedSD_mount_data = 1;
+    }
+#endif
+
+    DIR* d;
+
+    if (sharedSD_mount_data) {
+        d = opendir(data_path);
+        if (d == NULL) {
+            LOGE("error opening %s: %s\n", path, strerror(errno));
+            return NULL;
+        }
+    } else {
+        d = opendir(path);
+        if (d == NULL) {
+            LOGE("error opening %s: %s\n", path, strerror(errno));
+            return NULL;
+        }
     }
 
     int d_size = 0;
@@ -813,7 +888,12 @@ static char* browse_directory(const char* path, Device* device) {
         }
 
         char new_path[PATH_MAX];
-        strlcpy(new_path, path, PATH_MAX);
+
+        if (sharedSD_mount_data) {
+            strlcpy(new_path, data_path, PATH_MAX);
+        } else {
+            strlcpy(new_path, path, PATH_MAX);
+        }
         strlcat(new_path, "/", PATH_MAX);
         strlcat(new_path, item, PATH_MAX);
 
@@ -843,6 +923,7 @@ static bool yes_no(Device* device, const char* question1, const char* question2)
     return (chosen_item == 1);
 }
 
+#if 0
 // Return true on success.
 static bool wipe_data(int should_confirm, Device* device) {
     if (should_confirm && !yes_no(device, "Wipe all user data?", "  THIS CAN NOT BE UNDONE!")) {
@@ -860,6 +941,11 @@ static bool wipe_data(int should_confirm, Device* device) {
     ui->Print("Data wipe %s.\n", success ? "complete" : "failed");
     return success;
 }
+#else
+bool wipe_data(int confirm, Device* device) {
+    return mt_wipe_data(confirm, device);
+}
+#endif
 
 // Return true on success.
 static bool wipe_cache(bool should_confirm, Device* device) {
@@ -1013,7 +1099,11 @@ static bool wipe_ab_device(size_t wipe_package_size) {
     return true;
 }
 
+#if 0
 static void choose_recovery_file(Device* device) {
+#else
+void choose_recovery_file(Device* device) {
+#endif
     // "Back" + KEEP_LOG_COUNT * 2 + terminating nullptr entry
     char* entries[1 + KEEP_LOG_COUNT * 2 + 1];
     memset(entries, 0, sizeof(entries));
@@ -1076,8 +1166,11 @@ static void choose_recovery_file(Device* device) {
         free(entries[i]);
     }
 }
-
+#if 0
 static void run_graphics_test(Device* device) {
+#else
+void run_graphics_test(Device* device) {
+#endif
     // Switch to graphics screen.
     ui->ShowText(false);
 
@@ -1192,6 +1285,7 @@ static int apply_from_sdcard(Device* device, bool* wipe_cache) {
 // on if the --shutdown_after flag was passed to recovery.
 static Device::BuiltinAction
 prompt_and_wait(Device* device, int status) {
+#if 0
     for (;;) {
         finish_recovery(NULL);
         switch (status) {
@@ -1292,6 +1386,9 @@ prompt_and_wait(Device* device, int status) {
                 break;
         }
     }
+#else
+  return mt_prompt_and_wait(device, status);
+#endif
 }
 
 static void
@@ -1373,7 +1470,9 @@ static bool is_battery_ok() {
         // the battery profile. Before the load finishes, it reports value 50 as a fake
         // capacity. BATTERY_READ_TIMEOUT_IN_SEC is set that the battery drivers are expected
         // to finish loading the battery profile earlier than 10 seconds after kernel startup.
-        if (status == 0 && capacity.valueInt64 == 50) {
+        // If capacity is actually 50, recovery will terminate update.
+        // Modify capacity.valueInt64 from 50 to -1.
+        if (status == 0 && capacity.valueInt64 == -1) {
             if (wait_second < BATTERY_READ_TIMEOUT_IN_SEC) {
                 sleep(1);
                 wait_second++;
@@ -1382,7 +1481,7 @@ static bool is_battery_ok() {
         }
         // If we can't read battery percentage, it may be a device without battery. In this
         // situation, use 100 as a fake battery percentage.
-        if (status != 0) {
+        if (status != 0 || capacity.valueInt64 == -1) {
             capacity.valueInt64 = 100;
         }
         return (charged && capacity.valueInt64 >= BATTERY_WITH_CHARGER_OK_PERCENTAGE) ||
@@ -1529,6 +1628,13 @@ int main(int argc, char **argv) {
     load_volume_table();
     has_cache = volume_for_path(CACHE_ROOT) != nullptr;
 
+    mt_main_init_sdcard2();
+    mt_init_partition_type();
+
+    if (mt_main_init_cache_merge()) return 0;
+
+    ensure_path_mounted(LAST_LOG_FILE);
+    rotate_logs(KEEP_LOG_COUNT);
     get_args(&argc, &argv);
 
     const char *send_intent = NULL;
@@ -1583,6 +1689,9 @@ int main(int argc, char **argv) {
         case '?':
             LOGE("Invalid command argument\n");
             continue;
+        default:
+            mt_main_arg(arg);
+            break;
         }
     }
 
@@ -1633,6 +1742,9 @@ int main(int argc, char **argv) {
         // For backwards compatibility on the cache partition only, if
         // we're given an old 'root' path "CACHE:foo", change it to
         // "/cache/foo".
+#ifdef SUPPORT_DATA_BACKUP_RESTORE
+        set_force_upgrade();
+#endif
         if (strncmp(update_package, "CACHE:", 6) == 0) {
             int len = strlen(update_package) + 10;
             char* modified_path = (char*)malloc(len);
@@ -1654,6 +1766,8 @@ int main(int argc, char **argv) {
 
     ui->Print("Supported API: %d\n", RECOVERY_API_VERSION);
 
+    fprintf(stdout, "update_package = %s\n", update_package ? update_package : "NULL");
+
     int status = INSTALL_SUCCESS;
 
     if (update_package != NULL) {
@@ -1674,11 +1788,15 @@ int main(int argc, char **argv) {
             log_failure_code(kBootreasonInBlacklist, update_package);
             status = INSTALL_SKIPPED;
         } else {
+#if 0
             status = install_package(update_package, &should_wipe_cache,
                                      TEMPORARY_INSTALL_FILE, true, retry_count);
             if (status == INSTALL_SUCCESS && should_wipe_cache) {
                 wipe_cache(false, device);
             }
+#else
+        mt_main_update_package(status, update_package, &should_wipe_cache);
+#endif
             if (status != INSTALL_SUCCESS) {
                 ui->Print("Installation aborted.\n");
                 // When I/O error happens, reboot and retry installation EIO_RETRY_COUNT
@@ -1739,10 +1857,10 @@ int main(int argc, char **argv) {
         if (sideload_auto_reboot) {
             ui->Print("Rebooting automatically.\n");
         }
+    } else if (mt_main_backup_restore(status)) {
     } else if (!just_exit) {
         status = INSTALL_NONE;  // No command specified
         ui->SetBackground(RecoveryUI::NO_COMMAND);
-
         // http://b/17489952
         // If this is an eng or userdebug build, automatically turn on the
         // text display if no command is specified.
@@ -1751,6 +1869,7 @@ int main(int argc, char **argv) {
         }
     }
 
+    mt_main_write_result(status, update_package);
     if (!sideload_auto_reboot && (status == INSTALL_ERROR || status == INSTALL_CORRUPT)) {
         copy_logs();
         ui->SetBackground(RecoveryUI::ERROR);
@@ -1764,6 +1883,7 @@ int main(int argc, char **argv) {
             after = temp;
         }
     }
+
 
     // Save logs and clean up before rebooting or shutting down.
     finish_recovery(send_intent);

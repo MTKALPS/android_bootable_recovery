@@ -1,4 +1,9 @@
 /*
+* Copyright (C) 2014 MediaTek Inc.
+* Modification based on code covered by the mentioned copyright
+* and/or permission notice(s).
+*/
+/*
  * Copyright (C) 2014 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -51,6 +56,8 @@
 #include "print_sha1.h"
 #include "unique_fd.h"
 #include "updater.h"
+#include "mt_common.h"
+#include "mt_partition.h"
 
 #define BLOCKSIZE 4096
 
@@ -733,6 +740,19 @@ static int CreateStash(State* state, int maxblocks, const char* blockdev, std::s
                    dirname.c_str(), strerror(errno));
         return -1;
     } else if (res != 0) {
+        if (stat(STASH_DIRECTORY_BASE, &sb) != 0) {
+        /* workaround for L -> M, partition layout change:
+           cache partition will be formatted before install package,
+           and /cache/recovery will not exist here,
+           which will cause mkdir(dirname, STASH_DIRECTORY_MODE) fail */
+          res = mkdir(STASH_DIRECTORY_BASE, 0770);
+
+          if (res != 0) {
+              ErrorAbort(state, "mkdir \"%s\" failed: %s\n", STASH_DIRECTORY_BASE, strerror(errno));
+              return -1;
+          }
+        }
+
         fprintf(stderr, "creating stash %s\n", dirname.c_str());
         res = mkdir(dirname.c_str(), STASH_DIRECTORY_MODE);
 
@@ -1407,6 +1427,10 @@ static Value* PerformBlockImageUpdate(const char* name, State* state, int /* arg
     std::unique_ptr<Value, decltype(&FreeValue)> new_data_fn_holder(new_data_fn, FreeValue);
     std::unique_ptr<Value, decltype(&FreeValue)> patch_data_fn_holder(patch_data_fn, FreeValue);
 
+    char *dev_path = get_partition_path(blockdev_filename->data);
+    free(blockdev_filename->data);
+    blockdev_filename->data = dev_path;
+
     if (blockdev_filename->type != VAL_STRING) {
         ErrorAbort(state, kArgsParsingFailure, "blockdev_filename argument to %s must be string",
                    name);
@@ -1728,6 +1752,10 @@ Value* RangeSha1Fn(const char* name, State* state, int /* argc */, Expr* argv[])
     std::unique_ptr<Value, decltype(&FreeValue)> ranges_holder(ranges, FreeValue);
     std::unique_ptr<Value, decltype(&FreeValue)> blockdev_filename_holder(blockdev_filename,
             FreeValue);
+
+    char *dev_path = get_partition_path(blockdev_filename->data);
+    free(blockdev_filename->data);
+    blockdev_filename->data = dev_path;
 
     if (blockdev_filename->type != VAL_STRING) {
         ErrorAbort(state, kArgsParsingFailure, "blockdev_filename argument to %s must be string",
