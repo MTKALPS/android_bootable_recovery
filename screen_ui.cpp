@@ -34,6 +34,12 @@
 #include "screen_ui.h"
 #include "ui.h"
 
+#ifdef MTK_WEARABLE_PLATFORM
+#define MTK_ROBOT_MOVE_DOWN_OFFSET 0
+#else
+#define MTK_ROBOT_MOVE_DOWN_OFFSET 25
+#endif
+
 static int char_width;
 static int char_height;
 
@@ -108,7 +114,7 @@ void ScreenRecoveryUI::draw_background_locked(Icon icon)
         int sh = (max_stage >= 0) ? stageHeight : 0;
 
         iconX = (gr_fb_width() - iconWidth) / 2;
-        iconY = (gr_fb_height() - (iconHeight+textHeight+40+sh)) / 2;
+        iconY = (gr_fb_height() - (iconHeight+textHeight+40+sh)) / 2 + MTK_ROBOT_MOVE_DOWN_OFFSET;
 
         int textX = (gr_fb_width() - textWidth) / 2;
         int textY = ((gr_fb_height() - (iconHeight+textHeight+40+sh)) / 2) + iconHeight + 40;
@@ -147,7 +153,11 @@ void ScreenRecoveryUI::draw_progress_locked()
         int height = gr_get_height(progressBarEmpty);
 
         int dx = (gr_fb_width() - width)/2;
+#if 0 //wschen 2012-07-11
         int dy = (3*gr_fb_height() + iconHeight - 2*height)/4;
+#else
+        int dy = (gr_fb_height() - 8 * height)/4;
+#endif
 
         // Erase behind the progress bar (in case this was a progress-only update)
         gr_color(0, 0, 0, 255);
@@ -202,6 +212,11 @@ void ScreenRecoveryUI::SetColor(UIElement e) {
     }
 }
 
+#ifdef MTK_WEARABLE_PLATFORM
+  #define ROW_INTERVAL  2
+#else
+  #define ROW_INTERVAL  4
+#endif
 // Redraw everything on the screen.  Does not flip pages.
 // Should only be called with updateMutex locked.
 void ScreenRecoveryUI::draw_screen_locked()
@@ -232,12 +247,12 @@ void ScreenRecoveryUI::draw_screen_locked()
                 } else {
                     if (menu[i][0]) gr_text(4, y, menu[i], i < menu_top);
                 }
-                y += char_height+4;
+                y += char_height+ROW_INTERVAL;
             }
             SetColor(MENU);
-            y += 4;
+            y += ROW_INTERVAL;
             gr_fill(0, y, gr_fb_width(), y+2);
-            y += 4;
+            y += ROW_INTERVAL;
             ++i;
         }
 
@@ -352,10 +367,17 @@ void ScreenRecoveryUI::Init()
     gr_font_size(&char_width, &char_height);
 
     text_col = text_row = 0;
-    text_rows = gr_fb_height() / char_height;
+
+#ifdef MTK_WEARABLE_PLATFORM
+    text_rows = (gr_fb_height() / char_height);
+#else
+    //tony.kuo 2013-12-23: Subtract some rows so screen could support number of text_rows
+    text_rows = ((gr_fb_height() / char_height) - 10) ;
+#endif
+
     if (text_rows > kMaxRows) text_rows = kMaxRows;
     text_top = 1;
-
+	
     text_cols = gr_fb_width() / char_width;
     if (text_cols > kMaxCols - 1) text_cols = kMaxCols - 1;
 
@@ -515,6 +537,7 @@ void ScreenRecoveryUI::StartMenu(const char* const * headers, const char* const 
         menu_items = i - menu_top;
         show_menu = 1;
         menu_sel = initial_selection;
+        //printf("text_rows:%d,text_cols:%d,menu_items:%d, menu_sel:%d, menu_top:%d, i:%d\n", text_rows, text_cols, menu_items, menu_sel, menu_top, i);
         update_screen_locked();
     }
     pthread_mutex_unlock(&updateMutex);
@@ -526,8 +549,16 @@ int ScreenRecoveryUI::SelectMenu(int sel) {
     if (show_menu > 0) {
         old_sel = menu_sel;
         menu_sel = sel;
+#ifdef MTK_WEARABLE_PLATFORM
+        if (menu_sel < 0) {
+            menu_sel = menu_items - 1;
+        } else if (menu_sel >= menu_items) {
+            menu_sel = 0;
+        }
+#else
         if (menu_sel < 0) menu_sel = 0;
         if (menu_sel >= menu_items) menu_sel = menu_items-1;
+#endif
         sel = menu_sel;
         if (menu_sel != old_sel) update_screen_locked();
     }

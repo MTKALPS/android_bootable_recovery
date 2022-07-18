@@ -65,10 +65,19 @@ class Device {
     //   - invoke a specific action (a menu position: any non-negative number)
     virtual int HandleMenuKey(int key, int visible) = 0;
 
+#if 0 //wschen 2012-07-10
     enum BuiltinAction { NO_ACTION, REBOOT, APPLY_EXT,
                          APPLY_CACHE,   // APPLY_CACHE is deprecated; has no effect
                          APPLY_ADB_SIDELOAD, WIPE_DATA, WIPE_CACHE,
                          REBOOT_BOOTLOADER, SHUTDOWN, READ_RECOVERY_LASTLOG };
+
+#else
+    enum BuiltinAction { NO_ACTION, REBOOT, APPLY_EXT, APPLY_SDCARD2, 
+                         APPLY_CACHE, // APPLY_CACHE is deprecated; has no effect
+                         APPLY_ADB_SIDELOAD, WIPE_DATA, WIPE_CACHE,
+                         USER_DATA_BACKUP, USER_DATA_RESTORE, CHECK_ROOT, FORCE_APPLY_SDCARD_SIDELOAD, FORCE_APPLY_SDCARD2_SIDELOAD,
+                         REBOOT_BOOTLOADER, SHUTDOWN, READ_RECOVERY_LASTLOG };
+#endif
 
     // Perform a recovery action selected from the menu.
     // 'menu_position' will be the item number of the selected menu
@@ -80,7 +89,9 @@ class Device {
     // value.  If it is an action specific to your device, you
     // actually perform it here and return NO_ACTION.
     virtual BuiltinAction InvokeMenuItem(int menu_position) = 0;
-
+#if 1 //wschen 2012-07-10
+    virtual BuiltinAction InvokeForceMenuItem(int menu_position) = 0;
+#endif
     static const int kNoAction = -1;
     static const int kHighlightUp = -2;
     static const int kHighlightDown = -3;
@@ -104,6 +115,9 @@ class Device {
     // NULL-terminated).  The menu_position passed to InvokeMenuItem
     // will correspond to the indexes into this array.
     virtual const char* const* GetMenuItems() = 0;
+#if 1 //wschen 2012-07-10
+    virtual const char* const* GetForceMenuItems() = 0;
+#endif
 };
 
 // The device-specific library must define this function (or the

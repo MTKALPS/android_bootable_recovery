@@ -30,7 +30,7 @@
 #include "applypatch.h"
 #include "mtdutils/mtdutils.h"
 #include "edify/expr.h"
-
+#include "common.h"
 static int LoadPartitionContents(const char* filename, FileContents* file);
 static ssize_t FileSink(const unsigned char* data, ssize_t len, void* token);
 static int GenerateTarget(FileContents* source_file,
@@ -44,6 +44,49 @@ static int GenerateTarget(FileContents* source_file,
                           const Value* bonus_data);
 
 static int mtd_partitions_scanned = 0;
+
+#if 1 //wschen 2012-05-24
+
+#define NAND_TYPE    0
+#define EMMC_TYPE    1
+static int phone_type(void)
+{
+
+    FILE *dum;
+    char buf[512];
+    char p_name[32], p_size[32], p_addr[32], p_actname[64];
+    unsigned int p_type;
+    //0 -> NAND; 1 -> EMMC
+    int phone_type = -1;
+
+    dum = fopen("/proc/dumchar_info", "r");
+    if (dum) {
+        if (fgets(buf, sizeof(buf), dum) != NULL) {
+            while (fgets(buf, sizeof(buf), dum)) {
+                if (sscanf(buf, "%s %s %s %d %s", p_name, p_size, p_addr, &p_type, p_actname) == 5) {
+                    if (!strcmp(p_name, "bmtpool")) {
+                        break;
+                    }
+                    if (!strcmp(p_name, "preloader")) {
+                        if (p_type == 2) {
+                            phone_type = EMMC_TYPE;
+                            break;
+                        } else {
+                            phone_type = NAND_TYPE;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        fclose(dum);
+        return phone_type;
+    } else {
+        return -1;
+    }
+}
+#endif
+
 
 // Read a file into memory; store the file contents and associated
 // metadata in *file.
@@ -89,6 +132,57 @@ int LoadFileContents(const char* filename, FileContents* file) {
     return 0;
 }
 
+//TEE update related
+int LoadTeeContents(const char* filename, FileContents* file) {
+    file->data = NULL;
+
+    if (stat(filename, &file->st) != 0) {
+        printf("failed to stat \"%s\": %s\n", filename, strerror(errno));
+        return -1;
+    }
+
+    file->size = file->st.st_size;
+    file->data = malloc(file->size);
+
+    FILE* f = fopen(filename, "rb");
+    if (f == NULL) {
+        printf("failed to open \"%s\": %s\n", filename, strerror(errno));
+        free(file->data);
+        file->data = NULL;
+        return -1;
+    }
+
+    ssize_t bytes_read = fread(file->data, 1, file->size, f);
+    if (bytes_read != file->size) {
+        printf("short read of \"%s\" (%ld bytes of %ld)\n",
+               filename, (long)bytes_read, (long)file->size);
+        free(file->data);
+        file->data = NULL;
+        return -1;
+    }
+    fclose(f);
+
+    return 0;
+}
+
+int TeeUpdate(const char* tee_image, const char* target_filename) {
+
+    FileContents source_file;
+    source_file.data = NULL;
+
+    if (LoadTeeContents(tee_image, &source_file) == 0) {
+        if (WriteToPartition(source_file.data, source_file.size, target_filename) != 0) {
+            printf("write of patched data to %s failed\n", target_filename);
+            free(source_file.data);
+            return 1;
+        }
+    }
+
+    free(source_file.data);
+    // Success!
+    return 0;
+}
+
 static size_t* size_array;
 // comparison function for qsort()ing an int array of indexes into
 // size_array[].
@@ -127,6 +221,7 @@ static int LoadPartitionContents(const char* filename, FileContents* file) {
 
     enum PartitionType type;
 
+#if 0 //wschen 2012-05-24
     if (strcmp(magic, "MTD") == 0) {
         type = MTD;
     } else if (strcmp(magic, "EMMC") == 0) {
@@ -136,6 +231,25 @@ static int LoadPartitionContents(const char* filename, FileContents* file) {
                filename);
         return -1;
     }
+#else
+    bool is_gpt = support_gpt();
+    if (is_gpt) {
+        type = EMMC;
+    } else {
+        switch (phone_type()) {
+            case NAND_TYPE:
+                type = MTD;
+                break;
+            case EMMC_TYPE:
+                type = EMMC;
+                break;
+            default:
+                printf("LoadPartitionContents called with bad filename (%s)\n", filename);
+                return -1;
+        }
+    }
+#endif
+
     const char* partition = strtok(NULL, ":");
 
     int i;
@@ -148,6 +262,7 @@ static int LoadPartitionContents(const char* filename, FileContents* file) {
     if (colons < 3 || colons%2 == 0) {
         printf("LoadPartitionContents called with bad filename (%s)\n",
                filename);
+        return -1;
     }
 
     int pairs = (colons-1)/2;     // # of (size,sha1) pairs in filename
@@ -172,37 +287,89 @@ static int LoadPartitionContents(const char* filename, FileContents* file) {
     qsort(index, pairs, sizeof(int), compare_size_indices);
 
     MtdReadContext* ctx = NULL;
+#if 0 //wschen 2012-07-10
     FILE* dev = NULL;
+#else
+    int dev = -1;
+#endif
 
-    switch (type) {
-        case MTD:
-            if (!mtd_partitions_scanned) {
-                mtd_scan_partitions();
-                mtd_partitions_scanned = 1;
-            }
-
-            const MtdPartition* mtd = mtd_find_partition_by_name(partition);
-            if (mtd == NULL) {
-                printf("mtd partition \"%s\" not found (loading %s)\n",
-                       partition, filename);
+    if (is_gpt) {
+        printf("open emmc partition \"%s\"\n", partition);
+        if (!strcmp(partition, "boot")) {
+            dev = open(BOOT_PART, O_RDWR);
+            if (dev == -1) {
+                printf("failed to open emmc partition \"%s\": %s\n", BOOT_PART, strerror(errno));
                 return -1;
             }
-
-            ctx = mtd_read_partition(mtd);
-            if (ctx == NULL) {
-                printf("failed to initialize read of mtd partition \"%s\"\n",
-                       partition);
+        } else if (!strcmp(partition, "recovery")) {
+            dev = open(RECOVERY_PART, O_RDWR);
+            if (dev == -1) {
+                printf("failed to open emmc partition \"%s\": %s\n", RECOVERY_PART, strerror(errno));
                 return -1;
             }
-            break;
-
-        case EMMC:
-            dev = fopen(partition, "rb");
-            if (dev == NULL) {
+        } else {
+            dev = open(partition, O_RDWR);
+            if (dev == -1) {
                 printf("failed to open emmc partition \"%s\": %s\n",
-                       partition, strerror(errno));
+                        partition, strerror(errno));
                 return -1;
             }
+        }
+    } else {
+        //not gpt
+        switch (type) {
+            case MTD:
+                if (!mtd_partitions_scanned) {
+                    mtd_scan_partitions();
+                    mtd_partitions_scanned = 1;
+                }
+
+                const MtdPartition* mtd = mtd_find_partition_by_name(partition);
+                if (mtd == NULL) {
+                    printf("mtd partition \"%s\" not found (loading %s)\n",
+                            partition, filename);
+                    return -1;
+                }
+
+                ctx = mtd_read_partition(mtd);
+                if (ctx == NULL) {
+                    printf("failed to initialize read of mtd partition \"%s\"\n",
+                            partition);
+                    return -1;
+                }
+                break;
+
+            case EMMC:
+#if 0 //wschen 2012-07-10
+                dev = fopen(partition, "rb");
+                if (dev == NULL) {
+                    printf("failed to open emmc partition \"%s\": %s\n",
+                            partition, strerror(errno));
+                    return -1;
+                }
+#else
+                printf("open emmc partition \"%s\"\n", partition);
+                if (!strcmp(partition, "boot")) {
+                    dev = open("/dev/bootimg", O_RDWR);
+                    if (dev == -1) {
+                        printf("failed to open emmc partition \"/dev/bootimg\": %s\n", strerror(errno));
+                        return -1;
+                    }
+                } else {
+                    char dev_name[32];
+
+                    strcpy(dev_name, "/dev/");
+                    strcat(dev_name, partition);
+                    dev = open(dev_name, O_RDWR);
+                    if (dev == -1) {
+                        printf("failed to open emmc partition \"%s\": %s\n",
+                                dev_name, strerror(errno));
+                        return -1;
+                    }
+                }
+                break;
+#endif
+        }
     }
 
     SHA_CTX sha_ctx;
@@ -219,17 +386,30 @@ static int LoadPartitionContents(const char* filename, FileContents* file) {
         // (again, we're trying the possibilities in order of increasing
         // size).
         size_t next = size[index[i]] - file->size;
+#if 0 //wschen 2012-07-10
         size_t read = 0;
+#else
+        size_t read_cnt = 0;
+#endif
         if (next > 0) {
             switch (type) {
                 case MTD:
+#if 0 //wschen 2012-07-10
                     read = mtd_read_data(ctx, p, next);
+#else
+                    read_cnt = mtd_read_data(ctx, p, next);
+#endif
                     break;
 
                 case EMMC:
+#if 0 //wschen 2012-07-10
                     read = fread(p, 1, next, dev);
+#else
+                    read_cnt = read(dev, p, next);
+#endif
                     break;
             }
+#if 0 //wschen 2012-07-10
             if (next != read) {
                 printf("short read (%zu bytes of %zu) for partition \"%s\"\n",
                        read, next, partition);
@@ -239,6 +419,17 @@ static int LoadPartitionContents(const char* filename, FileContents* file) {
             }
             SHA_update(&sha_ctx, p, read);
             file->size += read;
+#else
+            if (next != read_cnt) {
+                printf("short read (%d bytes of %d) for partition \"%s\"\n",
+                       read_cnt, next, partition);
+                free(file->data);
+                file->data = NULL;
+                return -1;
+            }
+            SHA_update(&sha_ctx, p, read_cnt);
+            file->size += read_cnt;
+#endif
         }
 
         // Duplicate the SHA context and finalize the duplicate so we can
@@ -263,7 +454,11 @@ static int LoadPartitionContents(const char* filename, FileContents* file) {
             break;
         }
 
+#if 0 //wschen 2012-07-10
         p += read;
+#else
+        p += read_cnt;
+#endif
     }
 
     switch (type) {
@@ -272,7 +467,11 @@ static int LoadPartitionContents(const char* filename, FileContents* file) {
             break;
 
         case EMMC:
+#if 0 //wschen 2012-07-10
             fclose(dev);
+#else
+            close(dev);
+#endif
             break;
     }
 
@@ -354,6 +553,7 @@ int WriteToPartition(unsigned char* data, size_t len,
     const char* magic = strtok(copy, ":");
 
     enum PartitionType type;
+#if 0 //wschen 2012-07-10
     if (strcmp(magic, "MTD") == 0) {
         type = MTD;
     } else if (strcmp(magic, "EMMC") == 0) {
@@ -362,10 +562,33 @@ int WriteToPartition(unsigned char* data, size_t len,
         printf("WriteToPartition called with bad target (%s)\n", target);
         return -1;
     }
+#else
+    bool is_gpt = support_gpt();
+    if (is_gpt) {
+        type = EMMC;
+    } else {
+        switch (phone_type()) {
+            case NAND_TYPE:
+                type = MTD;
+                break;
+            case EMMC_TYPE:
+                type = EMMC;
+                break;
+            default:
+                printf("WriteToPartition called with bad target (%s)\n", target);
+                free(copy);
+                return -1;
+        }
+    }
+#endif
+
     const char* partition = strtok(NULL, ":");
 
     if (partition == NULL) {
         printf("bad partition target name \"%s\"\n", target);
+#if 1 //wschen 2012-07-10
+        free(copy);
+#endif
         return -1;
     }
 
@@ -380,6 +603,9 @@ int WriteToPartition(unsigned char* data, size_t len,
             if (mtd == NULL) {
                 printf("mtd partition \"%s\" not found for writing\n",
                        partition);
+#if 1 //wschen 2012-07-10
+                free(copy);
+#endif
                 return -1;
             }
 
@@ -387,6 +613,9 @@ int WriteToPartition(unsigned char* data, size_t len,
             if (ctx == NULL) {
                 printf("failed to init mtd partition \"%s\" for writing\n",
                        partition);
+#if 1 //wschen 2012-07-10
+                free(copy);
+#endif
                 return -1;
             }
 
@@ -395,30 +624,105 @@ int WriteToPartition(unsigned char* data, size_t len,
                 printf("only wrote %zu of %zu bytes to MTD %s\n",
                        written, len, partition);
                 mtd_write_close(ctx);
+#if 1 //wschen 2012-07-10
+                free(copy);
+#endif
                 return -1;
             }
 
             if (mtd_erase_blocks(ctx, -1) < 0) {
                 printf("error finishing mtd write of %s\n", partition);
                 mtd_write_close(ctx);
+#if 1 //wschen 2012-07-10
+                free(copy);
+#endif
                 return -1;
             }
 
             if (mtd_write_close(ctx)) {
                 printf("error closing mtd write of %s\n", partition);
+#if 1 //wschen 2012-07-10
+                free(copy);
+#endif
                 return -1;
             }
             break;
 
         case EMMC:
         {
-            size_t start = 0;
-            int success = 0;
-            int fd = open(partition, O_RDWR | O_SYNC);
-            if (fd < 0) {
-                printf("failed to open %s: %s\n", partition, strerror(errno));
+#if 0 //wschen 2012-07-10
+            FILE* f = fopen(partition, "wb");
+            if (fwrite(data, 1, len, f) != len) {
+                printf("short write writing to %s (%s)\n",
+                                   partition, strerror(errno));
                 return -1;
             }
+            if (fclose(f) != 0) {
+                printf("error closing %s (%s)\n", partition, strerror(errno));
+                return -1;
+            }
+#else
+            int fd;
+            size_t start = 0;
+            int success = 0;
+
+            if (is_gpt) {
+                if (!strcmp(partition, "boot")) {
+                    partition = strdup(BOOT_PART);
+                    fd = open(BOOT_PART, O_RDWR | O_SYNC);
+                    if (fd == -1) {
+                        printf("failed to open emmc partition \"%s\": %s\n", BOOT_PART, strerror(errno));
+                        free(copy);
+                        return -1;
+                    }
+                } else if (!strcmp(partition, "recovery")) {
+                    partition = strdup(RECOVERY_PART);
+                    fd = open(RECOVERY_PART, O_RDWR | O_SYNC);
+                    if (fd == -1) {
+                        printf("failed to open emmc partition \"%s\": %s\n", RECOVERY_PART, strerror(errno));
+                        free(copy);
+                        return -1;
+                    }
+                } else if (!strcmp(partition, "tee2")) {
+                    partition = strdup(TEE2_PART);
+                    fd = open(TEE2_PART, O_RDWR | O_SYNC);
+                    if (fd == -1) {
+                        printf("failed to open emmc partition \"%s\": %s\n", TEE2_PART, strerror(errno));
+                        free(copy);
+                        return -1;
+                    }
+                } else {
+                    fd = open(partition, O_RDWR | O_SYNC);
+                    if (fd == -1) {
+                        printf("failed to open emmc partition \"%s\": %s\n", partition, strerror(errno));
+                        free(copy);
+                        return -1;
+                    }
+                }
+            } else {
+                //not gpt
+                if (!strcmp(partition, "boot")) {
+                    partition = strdup("/dev/bootimg");
+                    fd = open("/dev/bootimg", O_RDWR | O_SYNC);
+                    if (fd == -1) {
+                        printf("failed to open emmc partition \"/dev/bootimg\": %s\n", strerror(errno));
+                        free(copy);
+                        return -1;
+                    }
+                } else {
+                    char dev_name[32];
+
+                    snprintf(dev_name, sizeof(dev_name), "/dev/%s", partition);
+                    partition = strdup(dev_name);
+                    fd = open(dev_name, O_RDWR | O_SYNC);
+                    if (fd == -1) {
+                        printf("failed to open emmc partition \"%s\": %s\n", dev_name, strerror(errno));
+                        free(copy);
+                        return -1;
+                    }
+                }
+            } //end of not gpt
+
             int attempt;
 
             for (attempt = 0; attempt < 2; ++attempt) {
@@ -434,6 +738,7 @@ int WriteToPartition(unsigned char* data, size_t len,
                         } else {
                             printf("failed write writing to %s (%s)\n",
                                    partition, strerror(errno));
+                            close(fd);
                             return -1;
                         }
                     }
@@ -517,14 +822,14 @@ int WriteToPartition(unsigned char* data, size_t len,
                 return -1;
             }
             sync();
-            break;
+#endif
         }
+            break;
     }
 
     free(copy);
     return 0;
 }
-
 
 // Take a string 'str' of 40 hex digits and parse it into the 20
 // byte array 'digest'.  'str' may contain only the digest or be of
@@ -785,8 +1090,60 @@ int applypatch(const char* source_filename,
         if (copy_patch_value == NULL) {
             // fail.
             printf("copy file doesn't match source SHA-1s either\n");
+#if 0 //wschen 2013-05-23
             free(copy_file.data);
             return 1;
+#else
+            if (memcmp(copy_file.sha1, target_sha1, SHA_DIGEST_SIZE) == 0) {
+                printf("use cache temp file to replace \"%s\"\n", target_filename);
+
+                if (strncmp(target_filename, "MTD:", 4) == 0 || strncmp(target_filename, "EMMC:", 5) == 0) {
+                    if (WriteToPartition(copy_file.data, copy_file.size, target_filename) != 0) {
+                        printf("write of patched data to %s failed\n", target_filename);
+                        return 1;
+                    }
+                    //everything is fine
+                    unlink(CACHE_TEMP_SOURCE);
+                    sync();
+                    return 0;
+                } else {
+                    if (SaveFileContents(target_filename, &copy_file) < 0) {
+                        printf("failed to copy back %s\n", target_filename);
+                        free(copy_file.data);
+                        copy_file.data = NULL;
+                        return 1;
+                    } else {
+                        //copy success
+                        free(copy_file.data);
+                        copy_file.data = NULL;
+
+                        if (LoadFileContents(target_filename, &source_file) == 0) {
+                            if (memcmp(source_file.sha1, target_sha1, SHA_DIGEST_SIZE) == 0) {
+                                free(source_file.data);
+                                source_file.data = NULL;
+                                //everything is fine
+                                unlink(CACHE_TEMP_SOURCE);
+                                sync();
+                                return 0;
+                            } else {
+                                free(source_file.data);
+                                source_file.data = NULL;
+                                printf("copied target file (%s) SHA1 does not match\n", target_filename);
+                                return 1;
+                            }
+                        } else {
+                            printf("failed to read copied target file (%s)\n", target_filename);
+                            return 1;
+                        }
+                    }
+                }
+            } else {
+                printf("cache temp file doesn't match target SHA-1s (%s)\n", target_filename);
+                free(copy_file.data);
+                copy_file.data = NULL;
+                return 1;
+            }
+#endif
         }
     }
 
@@ -844,6 +1201,7 @@ static int GenerateTarget(FileContents* source_file,
 
             // We still write the original source to cache, in case
             // the partition write is interrupted.
+            if (source_patch_value != NULL) { //wschen 2013-05-24 must check the source is complete
             if (MakeFreeSpaceOnCache(source_file->size) < 0) {
                 printf("not enough free space on /cache\n");
                 return 1;
@@ -851,6 +1209,7 @@ static int GenerateTarget(FileContents* source_file,
             if (SaveFileContents(CACHE_TEMP_SOURCE, source_file) < 0) {
                 printf("failed to back up source file\n");
                 return 1;
+            }
             }
             made_copy = 1;
             retry = 0;
@@ -901,6 +1260,19 @@ static int GenerateTarget(FileContents* source_file,
                 size_t free_space = FreeSpaceForFile(target_fs);
                 printf("(now %ld bytes free for target) ", (long)free_space);
             }
+
+#if 1 //wschen 2013-05-24 still backup file to cache
+
+            if (enough_space && (source_patch_value != NULL)) {
+                if (strncmp(source_filename, "MTD:", 4) && strncmp(source_filename, "EMMC:", 5)) {
+                    if (MakeFreeSpaceOnCache(source_file->size) == 0) {
+                        if (SaveFileContents(CACHE_TEMP_SOURCE, source_file) == 0) {
+                            made_copy = 1;
+                        }
+                    }
+                }
+            }
+#endif
         }
 
         const Value* patch;
@@ -916,6 +1288,14 @@ static int GenerateTarget(FileContents* source_file,
             printf("patch is not a blob\n");
             return 1;
         }
+
+#if 1 //wschen 2013-05-23
+
+        if (patch->data == NULL) {
+            printf("patch data is invalid\n");
+            return 1;
+        }
+#endif
 
         SinkFn sink = NULL;
         void* token = NULL;
@@ -1039,6 +1419,10 @@ static int GenerateTarget(FileContents* source_file,
     // If this run of applypatch created the copy, and we're here, we
     // can delete it.
     if (made_copy) unlink(CACHE_TEMP_SOURCE);
+
+#if 1 //wschen 2013-05-23
+    sync();
+#endif
 
     // Success!
     return 0;

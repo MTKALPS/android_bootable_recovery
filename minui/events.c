@@ -24,8 +24,8 @@
 
 #include "minui.h"
 
-#define MAX_DEVICES 16
-#define MAX_MISC_FDS 16
+#define MAX_DEVICES 32
+#define MAX_MISC_FDS 32
 
 #define BITS_PER_LONG (sizeof(unsigned long) * 8)
 #define BITS_TO_LONGS(x) (((x) + BITS_PER_LONG - 1) / BITS_PER_LONG)
@@ -97,7 +97,10 @@ int ev_init(ev_callback input_cb, void *data)
             ev_fdinfo[ev_count].data = data;
             ev_count++;
             ev_dev_count++;
-            if(ev_dev_count == MAX_DEVICES) break;
+            if(ev_dev_count == MAX_DEVICES) {
+                printf("warning : It may not read all input events\n");
+             break;
+            }
         }
     }
 

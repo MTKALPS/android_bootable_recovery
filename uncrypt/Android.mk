@@ -1,3 +1,4 @@
+#
 # Copyright (C) 2014 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,6 +20,8 @@ include $(CLEAR_VARS)
 LOCAL_SRC_FILES := uncrypt.c
 
 LOCAL_MODULE := uncrypt
+
+LOCAL_C_INCLUDES += bootable/recovery 
 
 LOCAL_STATIC_LIBRARIES := libfs_mgr liblog libcutils
 

@@ -215,6 +215,10 @@ int res_create_display_surface(const char* name, gr_surface* pSurface) {
         goto exit;
     }
 
+#if defined(RECOVERY_BGRA) || defined(RECOVERY_ABGR8888)
+    png_set_bgr(png_ptr);
+#endif
+
     unsigned char* p_row = malloc(width * 4);
     unsigned int y;
     for (y = 0; y < height; ++y) {
@@ -278,6 +282,10 @@ int res_create_multi_display_surface(const char* name, int* frames, gr_surface**
         }
     }
 
+#if defined(RECOVERY_BGRA) || defined(RECOVERY_ABGR8888)
+    png_set_bgr(png_ptr);
+#endif
+
     unsigned char* p_row = malloc(width * 4);
     unsigned int y;
     for (y = 0; y < height; ++y) {
@@ -332,6 +340,10 @@ int res_create_alpha_surface(const char* name, gr_surface* pSurface) {
     surface->height = height;
     surface->row_bytes = width;
     surface->pixel_bytes = 1;
+
+#if defined(RECOVERY_BGRA) || defined(RECOVERY_ABGR8888)
+    png_set_bgr(png_ptr);
+#endif
 
     unsigned char* p_row;
     unsigned int y;

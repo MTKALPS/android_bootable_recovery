@@ -160,10 +160,17 @@ void gr_texticon(int x, int y, GRSurface* icon) {
 
 void gr_color(unsigned char r, unsigned char g, unsigned char b, unsigned char a)
 {
+#if defined(RECOVERY_BGRA) || defined(RECOVERY_ABGR8888)
+    gr_current_r = b;
+    gr_current_g = g;
+    gr_current_b = r;
+    gr_current_a = a;
+#else
     gr_current_r = r;
     gr_current_g = g;
     gr_current_b = b;
     gr_current_a = a;
+#endif
 }
 
 void gr_clear()

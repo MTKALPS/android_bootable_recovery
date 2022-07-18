@@ -33,11 +33,46 @@
 #include "roots.h"
 #include "verifier.h"
 #include "ui.h"
+#if 1 //tonykuo 2013-11-12
+#include "mincrypt/rsa.h"
+#include "mincrypt/sha.h"
+#include "mincrypt/sha256.h"
+#endif
+#if 1 //wschen 2012-07-10
+#include "bootloader.h"
+#endif
+
+#ifdef SUPPORT_DATA_BACKUP_RESTORE //wschen 2011-03-09
+#include "backup_restore.h"
+#endif
+
+#ifdef SUPPORT_SBOOT_UPDATE
+#include "sec/sec.h"
+#endif
 
 extern RecoveryUI* ui;
+int update_from_data;
+
+
+#if 1 //wschen 2012-07-10
+static void reset_mark_block(void)
+{
+    // Reset the bootloader message to revert to a normal main system boot.
+    struct bootloader_message boot;
+    memset(&boot, 0, sizeof(boot));
+    set_bootloader_message(&boot);
+    sync();
+}
+#endif
 
 #define ASSUMED_UPDATE_BINARY_NAME  "META-INF/com/google/android/update-binary"
 #define PUBLIC_KEYS_FILE "/res/keys"
+
+#ifdef EXTERNAL_MODEM_UPDATE
+#define BROMLITE_NAME  "META-INF/com/google/android/bromLite-binary"
+#define BROMLITE_PATH  "/tmp/bromLite-binary"
+#define MODEM_FILE_PATH  "/system/etc/firmware/modem"
+#endif
 
 // Default allocation of progress bar segments to operations
 static const int VERIFICATION_PROGRESS_TIME = 60;
@@ -158,6 +193,10 @@ try_update_binary(const char *path, ZipArchive *zip, int* wipe_cache) {
             fflush(stdout);
         } else if (strcmp(command, "wipe_cache") == 0) {
             *wipe_cache = 1;
+#if 1 //wschen 2012-07-25
+        } else if (strcmp(command, "special_factory_reset") == 0) {
+            *wipe_cache = 2;
+#endif
         } else if (strcmp(command, "clear_display") == 0) {
             ui->SetBackground(RecoveryUI::NONE);
         } else if (strcmp(command, "enable_reboot") == 0) {
@@ -178,16 +217,239 @@ try_update_binary(const char *path, ZipArchive *zip, int* wipe_cache) {
         return INSTALL_ERROR;
     }
 
+#ifdef SUPPORT_DATA_BACKUP_RESTORE //wschen 2011-03-09
+    //Skip userdata restore if updating from /data with no /data layout change
+    if (!usrdata_changed && update_from_data) {
+        ui->Print("/data offset remains the same no need to restore usrdata\n");
+    } else {
+        if (part_size_changed) {
+            if (ensure_path_mounted("/sdcard") != 0) {
+                LOGE("Can't mount %s\n", path);
+                return INSTALL_NO_SDCARD;
+            }
+
+            if (userdata_restore(backup_path, 1)) {
+                return INSTALL_FILE_SYSTEM_ERROR;
+            }
+        }
+    }
+#endif //SUPPORT_DATA_BACKUP_RESTORE
+
+    /* ----------------------------- */
+    /* SECURE BOOT UPDATE            */
+    /* ----------------------------- */
+#ifdef SUPPORT_SBOOT_UPDATE
+    sec_update(false);
+#endif
+
     return INSTALL_SUCCESS;
 }
 
+#ifdef EXTERNAL_MODEM_UPDATE
+#define EXT_MD_IOC_MAGIC		'E'
+#define EXT_MD_IOCTL_R8_DOWNLOAD   	_IO(EXT_MD_IOC_MAGIC, 106)
+#define EXT_MD_MONITOR_DEV "/dev/ext_md_ctl0"
+
+static int
+try_update_modem(const char *path) {
+    int i, fd, pipe_fd[2], status;
+    pid_t pid;
+    ZipEntry *temp_entry = NULL;
+    FILE *from_child;
+    ZipArchive zip;
+
+    //unzip bromlite to /tmp
+    MemMapping map;
+    if (sysMapFile(path, &map) != 0) {
+        LOGE("failed to map file %s\n", path);
+        return INSTALL_CORRUPT;
+    }
+ 
+    status = mzOpenZipArchive(map.addr, map.length, &zip);
+    if (status != 0) {
+        LOGE("Can't open %s\n(%s)\n", path, status != -1 ? strerror(status) : "bad");
+        sysReleaseMap(&map);
+        return INSTALL_CORRUPT;
+    }
+    temp_entry = (ZipEntry *)mzFindZipEntry(&zip, BROMLITE_NAME);
+    if (temp_entry == NULL) {
+        LOGE("Can't find %s, maybe don't need to upgrade modem \n", BROMLITE_NAME);
+        mzCloseZipArchive(&zip);
+        sysReleaseMap(&map);
+        return INSTALL_SUCCESS;
+    }
+    unlink(BROMLITE_PATH);
+    fd = creat(BROMLITE_PATH, 0755);
+    if (fd < 0) {
+        mzCloseZipArchive(&zip);
+        LOGE("Can't make %s\n", BROMLITE_PATH);
+        sysReleaseMap(&map);
+        return INSTALL_ERROR;
+    }
+    bool ok = mzExtractZipEntryToFile(&zip, temp_entry, fd);
+    close(fd);
+    mzCloseZipArchive(&zip);
+    if (!ok) {
+        LOGE("Can't copy %s\n", BROMLITE_NAME);
+        sysReleaseMap(&map);
+        return INSTALL_ERROR;
+    }
+
+    //update modem from MODEM_FILE_PATH
+    ensure_path_mounted("/system");
+    pid  = fork();
+    if(pid == 0){
+        execl(BROMLITE_PATH, "bromLite-binary", MODEM_FILE_PATH, 0);
+        fprintf(stdout, "E:Can't run %s (%s)\n", BROMLITE_PATH, strerror(errno));
+        _exit(-1);
+    }
+    sysReleaseMap(&map);
+    waitpid(pid, &status, 0);
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        LOGE("Error in %s\n(Status %d)\n", path, WEXITSTATUS(status));
+        return INSTALL_ERROR;
+    }
+
+    return INSTALL_SUCCESS;
+}
+#endif
+
+#if 0
+// Reads a file containing one or more public keys as produced by
+// DumpPublicKey:  this is an RSAPublicKey struct as it would appear
+// as a C source literal, eg:
+//
+//  "{64,0xc926ad21,{1795090719,...,-695002876},{-857949815,...,1175080310}}"
+//
+// For key versions newer than the original 2048-bit e=3 keys
+// supported by Android, the string is preceded by a version
+// identifier, eg:
+//
+//  "v2 {64,0xc926ad21,{1795090719,...,-695002876},{-857949815,...,1175080310}}"
+//
+// (Note that the braces and commas in this example are actual
+// characters the parser expects to find in the file; the ellipses
+// indicate more numbers omitted from this example.)
+//
+// The file may contain multiple keys in this format, separated by
+// commas.  The last key must not be followed by a comma.
+//
+// A Certificate is a pair of an RSAPublicKey and a particular hash
+// (we support SHA-1 and SHA-256; we store the hash length to signify
+// which is being used).  The hash used is implied by the version number.
+//
+//       1: 2048-bit RSA key with e=3 and SHA-1 hash
+//       2: 2048-bit RSA key with e=65537 and SHA-1 hash
+//       3: 2048-bit RSA key with e=3 and SHA-256 hash
+//       4: 2048-bit RSA key with e=65537 and SHA-256 hash
+//
+// Returns NULL if the file failed to parse, or if it contain zero keys.
+Certificate*
+load_keys(const char* filename, int* numKeys) {
+    Certificate* out = NULL;
+    *numKeys = 0;
+
+    FILE* f = fopen(filename, "r");
+    if (f == NULL) {
+        LOGE("opening %s: %s\n", filename, strerror(errno));
+        goto exit;
+    }
+
+    {
+        int i;
+        bool done = false;
+        while (!done) {
+            ++*numKeys;
+            out = (Certificate*)realloc(out, *numKeys * sizeof(Certificate));
+            Certificate* cert = out + (*numKeys - 1);
+            cert->public_key = (RSAPublicKey*)malloc(sizeof(RSAPublicKey));
+
+            char start_char;
+            if (fscanf(f, " %c", &start_char) != 1) goto exit;
+            if (start_char == '{') {
+                // a version 1 key has no version specifier.
+                cert->public_key->exponent = 3;
+                cert->hash_len = SHA_DIGEST_SIZE;
+            } else if (start_char == 'v') {
+                int version;
+                if (fscanf(f, "%d {", &version) != 1) goto exit;
+                switch (version) {
+                    case 2:
+                        cert->public_key->exponent = 65537;
+                        cert->hash_len = SHA_DIGEST_SIZE;
+                        break;
+                    case 3:
+                        cert->public_key->exponent = 3;
+                        cert->hash_len = SHA256_DIGEST_SIZE;
+                        break;
+                    case 4:
+                        cert->public_key->exponent = 65537;
+                        cert->hash_len = SHA256_DIGEST_SIZE;
+                        break;
+                    default:
+                        goto exit;
+                }
+            }
+
+            RSAPublicKey* key = cert->public_key;
+            if (fscanf(f, " %i , 0x%x , { %u",
+                       &(key->len), &(key->n0inv), &(key->n[0])) != 3) {
+                goto exit;
+            }
+            if (key->len != RSANUMWORDS) {
+                LOGE("key length (%d) does not match expected size\n", key->len);
+                goto exit;
+            }
+            for (i = 1; i < key->len; ++i) {
+                if (fscanf(f, " , %u", &(key->n[i])) != 1) goto exit;
+            }
+            if (fscanf(f, " } , { %u", &(key->rr[0])) != 1) goto exit;
+            for (i = 1; i < key->len; ++i) {
+                if (fscanf(f, " , %u", &(key->rr[i])) != 1) goto exit;
+            }
+            fscanf(f, " } } ");
+
+            // if the line ends in a comma, this file has more keys.
+            switch (fgetc(f)) {
+            case ',':
+                // more keys to come.
+                break;
+
+            case EOF:
+                done = true;
+                break;
+
+            default:
+                LOGE("unexpected character between keys\n");
+                goto exit;
+            }
+
+            LOGI("read key e=%d hash=%d\n", key->exponent, cert->hash_len);
+        }
+    }
+
+    fclose(f);
+    return out;
+
+exit:
+    if (f) {
+        fclose(f);
+    }
+    free(out);
+    *numKeys = 0;
+    return NULL;
+}
+#endif
 static int
 really_install_package(const char *path, int* wipe_cache, bool needs_mount)
 {
     ui->SetBackground(RecoveryUI::INSTALLING_UPDATE);
+#if 0 //wschen 2012-07-10
     ui->Print("Finding update package...\n");
-    // Give verification half the progress bar...
-    ui->SetProgressType(RecoveryUI::DETERMINATE);
+#else
+    LOGI("Finding update package...\n");
+#endif
+    ui->SetProgressType(RecoveryUI::INDETERMINATE);
     ui->ShowProgress(VERIFICATION_PROGRESS_FRACTION, VERIFICATION_PROGRESS_TIME);
     LOGI("Update location: %s\n", path);
 
@@ -196,27 +458,43 @@ really_install_package(const char *path, int* wipe_cache, bool needs_mount)
 
     if (path && needs_mount) {
         if (path[0] == '@') {
-            ensure_path_mounted(path+1);
+            if (ensure_path_mounted(path+1) != 0) {
+                LOGE("Can't mount %s\n", path);
+                return INSTALL_CORRUPT;
+            }
         } else {
-            ensure_path_mounted(path);
+            if (ensure_path_mounted(path) != 0) {
+                LOGE("Can't mount %s\n", path);
+                return INSTALL_CORRUPT;
+            }
         }
     }
 
     MemMapping map;
     if (sysMapFile(path, &map) != 0) {
         LOGE("failed to map file\n");
+        reset_mark_block();
         return INSTALL_CORRUPT;
     }
-
+    
     int numKeys;
     Certificate* loadedKeys = load_keys(PUBLIC_KEYS_FILE, &numKeys);
     if (loadedKeys == NULL) {
         LOGE("Failed to load keys\n");
+#if 0 //wschen 2012-07-10
         return INSTALL_CORRUPT;
+#else
+        reset_mark_block();
+        return INSTALL_NO_KEY;
+#endif
     }
     LOGI("%d key(s) loaded from %s\n", numKeys, PUBLIC_KEYS_FILE);
 
+#if 0 //wschen 2012-07-10
     ui->Print("Verifying update package...\n");
+#else
+    LOGI("Verifying update package...\n");
+#endif
 
     int err;
     err = verify_file(map.addr, map.length, loadedKeys, numKeys);
@@ -224,8 +502,13 @@ really_install_package(const char *path, int* wipe_cache, bool needs_mount)
     LOGI("verify_file returned %d\n", err);
     if (err != VERIFY_SUCCESS) {
         LOGE("signature verification failed\n");
-        sysReleaseMap(&map);
+#if 0 //wschen 2012-07-10
         return INSTALL_CORRUPT;
+#else
+        reset_mark_block();
+        sysReleaseMap(&map);
+        return INSTALL_SIGNATURE_ERROR;
+#endif
     }
 
     /* Try to open the package.
@@ -234,9 +517,41 @@ really_install_package(const char *path, int* wipe_cache, bool needs_mount)
     err = mzOpenZipArchive(map.addr, map.length, &zip);
     if (err != 0) {
         LOGE("Can't open %s\n(%s)\n", path, err != -1 ? strerror(err) : "bad");
+#if 1 //wschen 2012-07-10
+        reset_mark_block();
+#endif
         sysReleaseMap(&map);
         return INSTALL_CORRUPT;
     }
+
+#ifdef SUPPORT_DATA_BACKUP_RESTORE //wschen 2011-03-09
+    update_from_data = 0;
+
+    if (path && (path[0] == '@')) {
+        update_from_data = 2;
+    } else {
+        Volume* v = volume_for_path(path);
+        if (v && strcmp(v->mount_point, "/data") == 0) {
+            update_from_data = 1;
+        }
+    }
+    if (check_part_size(&zip, update_from_data, path, &map,needs_mount) != 0) {
+        reset_mark_block();
+        sysReleaseMap(&map);
+        return INSTALL_ERROR;
+    }
+#endif //SUPPORT_DATA_BACKUP_RESTORE
+
+    /* ----------------------------- */
+    /* SECURE BOOT CHECK             */
+    /* ----------------------------- */
+#ifdef SUPPORT_SBOOT_UPDATE
+    if (0 != (err = sec_verify_img_info(&zip, false))) {
+        sysReleaseMap(&map);
+        return INSTALL_SECURE_CHECK_FAIL;
+    }
+    sec_mark_status(false);
+#endif
 
     /* Verify and install the contents of the package.
      */
@@ -248,6 +563,14 @@ really_install_package(const char *path, int* wipe_cache, bool needs_mount)
 
     sysReleaseMap(&map);
 
+#ifdef EXTERNAL_MODEM_UPDATE
+    ui->Print("Installing update Modem...\n");
+    result = try_update_modem(path);
+    if (result != INSTALL_SUCCESS) {
+        LOGE("try_update_modem fail \n");
+        return result;
+    }
+#endif
     return result;
 }
 

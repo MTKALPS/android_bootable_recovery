@@ -65,6 +65,9 @@ int SaveFileContents(const char* filename, const FileContents* file);
 void FreeFileContents(FileContents* file);
 int FindMatchingPatch(uint8_t* sha1, char* const * const patch_sha1_str,
                       int num_patches);
+//Tee Update					 
+int LoadTeeContents(const char* filename, FileContents* file);		
+int TeeUpdate(const char* tee_image, const char* target_filename);
 
 // bsdiff.c
 void ShowBSDiffLicense();

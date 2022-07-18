@@ -52,13 +52,16 @@
 #include <log/log.h>
 #include <cutils/properties.h>
 #include <fs_mgr.h>
+#include "common.h"
 
 #define WINDOW_SIZE 5
 #define RECOVERY_COMMAND_FILE "/cache/recovery/command"
 #define RECOVERY_COMMAND_FILE_TMP "/cache/recovery/command.tmp"
 #define CACHE_BLOCK_MAP "/cache/recovery/block.map"
 
+#if 0 //wschen 2014-10-28
 static struct fstab* fstab = NULL;
+#endif
 
 static int write_at_offset(unsigned char* buffer, size_t size,
                            int wfd, off64_t offset)
@@ -105,6 +108,7 @@ void add_block_to_ranges(int** ranges, int* range_alloc, int* range_used, int ne
     }
 }
 
+#if 0 //wschen 2014-10-27
 static struct fstab* read_fstab()
 {
     fstab = NULL;
@@ -124,12 +128,14 @@ static struct fstab* read_fstab()
 
     return fstab;
 }
+#endif
 
 const char* find_block_device(const char* path, int* encryptable, int* encrypted)
 {
     // Look for a volume whose mount point is the prefix of path and
     // return its block device.  Set encrypted if it's currently
     // encrypted.
+#if 0 //wschen 2014-10-27
     int i;
     for (i = 0; i < fstab->num_entries; ++i) {
         struct fstab_rec* v = &fstab->recs[i];
@@ -150,6 +156,57 @@ const char* find_block_device(const char* path, int* encryptable, int* encrypted
             return v->blk_device;
         }
     }
+#else
+    if (strncmp(path, "/data/", 6) == 0) {
+        if (support_gpt()) {
+            *encrypted = 0;
+            *encryptable = 1;
+            char buffer[PROPERTY_VALUE_MAX+1];
+            if (property_get("ro.crypto.state", buffer, "") && strcmp(buffer, "encrypted") == 0) {
+                *encrypted = 1;
+            }
+            return strdup(DATA_PART);
+        } else {
+            FILE *fp = fopen("/proc/dumchar_info", "r");
+            char buf[512];
+            char p_name[32], p_size[32], p_addr[32], p_actname[64];
+            char data_dev[64];
+            unsigned p_type;
+            int emmc_phone = 0;
+            if (fp) {
+                if (fgets(buf, sizeof(buf), fp) != NULL) {
+                    while (fgets(buf, sizeof(buf), fp)) {
+                        if (sscanf(buf, "%s %s %s %d %s", p_name, p_size, p_addr, &p_type, p_actname) == 5) {
+                            if (!strcmp(p_name, "bmtpool")) {
+                                break;
+                            }
+                            if (!strcmp(p_name, "preloader")) {
+                                if (p_type == 2) {
+                                    emmc_phone = 1;
+                                }
+                            } else if (!strcmp(p_name, "usrdata")) {
+                                snprintf(data_dev, sizeof(data_dev), "%s", p_actname);
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                fclose(fp);
+
+                if (emmc_phone) {
+                    char buffer[PROPERTY_VALUE_MAX+1];
+                    *encryptable = 1;
+                    *encrypted = 0;
+                    if (property_get("ro.crypto.state", buffer, "") && strcmp(buffer, "encrypted") == 0) {
+                        *encrypted = 1;
+                    }
+                    return strdup(data_dev);
+                }
+            }
+        }
+    }
+#endif
 
     return NULL;
 }
@@ -326,6 +383,7 @@ int produce_block_map(const char* path, const char* map_file, const char* blk_de
 
 void wipe_misc() {
     ALOGI("removing old commands from misc");
+#if 0 //wschen 2014-10-28
     int i;
     for (i = 0; i < fstab->num_entries; ++i) {
         struct fstab_rec* v = &fstab->recs[i];
@@ -350,6 +408,33 @@ void wipe_misc() {
             close(fd);
         }
     }
+#else
+    char misc_name[256];
+    if (support_gpt()) {
+        snprintf(misc_name, sizeof(misc_name), "%s", MISC_PART);
+    } else {
+        snprintf(misc_name, sizeof(misc_name), "/dev/misc");
+    }
+    int fd = open(misc_name, O_WRONLY);
+    uint8_t zeroes[1088];   // sizeof(bootloader_message) from recovery
+    memset(zeroes, 0, sizeof(zeroes));
+    size_t written = 0;
+    size_t size = sizeof(zeroes);
+    if (fd != -1) {
+        while (written < size) {
+            ssize_t w = write(fd, zeroes, size-written);
+            if (w < 0 && errno != EINTR) {
+                ALOGE("zero write failed: %s\n", strerror(errno));
+                close(fd);
+                return;
+            } else {
+                written += w;
+            }
+        }
+
+        close(fd);
+    }
+#endif
 }
 
 void reboot_to_recovery() {
@@ -401,9 +486,11 @@ int main(int argc, char** argv)
 
     int encryptable;
     int encrypted;
+#if 0 //wschen 2014-10-27
     if (read_fstab() == NULL) {
         return 1;
     }
+#endif
     const char* blk_dev = find_block_device(path, &encryptable, &encrypted);
     if (blk_dev == NULL) {
         ALOGE("failed to find block device for %s", path);
@@ -432,7 +519,9 @@ int main(int argc, char** argv)
             return 1;
         }
     }
-
+#if 1 //wschen 2014-10-28
+    free((void *)blk_dev);
+#endif
     wipe_misc();
     rename(RECOVERY_COMMAND_FILE_TMP, RECOVERY_COMMAND_FILE);
     if (do_reboot) reboot_to_recovery();

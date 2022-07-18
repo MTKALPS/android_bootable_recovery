@@ -29,8 +29,12 @@ LOCAL_STATIC_LIBRARIES += \
     libz
 endif
 
+ifeq ($(MTK_CACHE_MERGE_SUPPORT), true)
+LOCAL_CFLAGS += -DCACHE_MERGE_SUPPORT
+endif
+
 LOCAL_STATIC_LIBRARIES += $(TARGET_RECOVERY_UPDATER_LIBS) $(TARGET_RECOVERY_UPDATER_EXTRA_LIBS)
-LOCAL_STATIC_LIBRARIES += libapplypatch libedify libmtdutils libminzip libz
+LOCAL_STATIC_LIBRARIES += libapplypatch libedify libmtdutils libminzip libz libapplysig
 LOCAL_STATIC_LIBRARIES += libmincrypt libbz
 LOCAL_STATIC_LIBRARIES += libcutils liblog libstdc++ libc
 LOCAL_STATIC_LIBRARIES += libselinux
@@ -42,6 +46,18 @@ tune2fs_static_libraries := \
  libext2_e2p \
  libext2fs
 LOCAL_STATIC_LIBRARIES += libtune2fs $(tune2fs_static_libraries)
+
+ifeq ($(TARGET_USERIMAGES_USE_UBIFS),true)
+LOCAL_CFLAGS += -DUBIFS_SUPPORT
+LOCAL_STATIC_LIBRARIES += ubiutils
+endif
+
+ifeq ($(TARGET_ARCH),arm)
+ifeq ($(strip $(MTK_FW_UPGRADE)), yes)
+LOCAL_CFLAGS += -DMTK_SYS_FW_UPGRADE
+LOCAL_STATIC_LIBRARIES += libfwupgrade
+endif
+endif
 
 LOCAL_C_INCLUDES += external/e2fsprogs/misc
 LOCAL_C_INCLUDES += $(LOCAL_PATH)/..
@@ -58,6 +74,7 @@ LOCAL_C_INCLUDES += $(LOCAL_PATH)/..
 # extension libs.
 
 inc := $(call intermediates-dir-for,PACKAGING,updater_extensions)/register.inc
+inc := $(call intermediates-dir-for,PACKAGING,updater_extensions,,,t)/register.inc
 
 # Encode the value of TARGET_RECOVERY_UPDATER_LIBS into the filename of the dependency.
 # So if TARGET_RECOVERY_UPDATER_LIBS is changed, a new dependency file will be generated.
@@ -80,12 +97,18 @@ $(inc) : $(inc_dep_file)
 	$(hide) echo "}" >> $@
 
 $(call intermediates-dir-for,EXECUTABLES,updater)/updater.o : $(inc)
+$(call intermediates-dir-for,EXECUTABLES,updater,,,t)/updater.o : $(inc)
+
+
 LOCAL_C_INCLUDES += $(dir $(inc))
 
 inc :=
 inc_dep_file :=
 
 LOCAL_MODULE := updater
+
+#compile updater in 32 bits
+LOCAL_MULTILIB := 32
 
 LOCAL_FORCE_STATIC_EXECUTABLE := true
 

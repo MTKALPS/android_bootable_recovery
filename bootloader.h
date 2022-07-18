@@ -64,6 +64,23 @@ struct bootloader_message {
 int get_bootloader_message(struct bootloader_message *out);
 int set_bootloader_message(const struct bootloader_message *in);
 
+#if 1 //wschen 2012-04-12
+#define PHONE_ENCRYPTED      (0x4321)
+#define PHONE_ENCRYPT_OFFSET (2048)
+#define OTA_RESULT_OFFSET    (2560)
+struct phone_encrypt_state {
+    int state;
+};
+
+/* Read and write the phone encrypt state from the "misc" partition.
+ */
+int get_phone_encrypt_state(struct phone_encrypt_state *out);
+int set_phone_encrypt_state(const struct phone_encrypt_state *in);
+int set_ota_result(int result);
+int get_nand_type();
+
+#endif
+
 #ifdef __cplusplus
 }
 #endif

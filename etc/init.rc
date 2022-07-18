@@ -23,6 +23,9 @@ on init
     mkdir /system
     mkdir /data
     mkdir /cache
+    insmod /sec.ko
+    mknod /dev/sec c 182 0
+    chmod 0660 /dev/sec
     mkdir /sideload
     mount tmpfs tmpfs /tmp
 
@@ -33,18 +36,25 @@ on init
     write /proc/sys/vm/max_map_count 1000000
 
 on fs
+    write /proc/bootprof "start mobicore (on fs)"    
+    chmod 0600 /dev/mobicore
+    chown system system /dev/mobicore
+    chmod 0666 /dev/mobicore-user
+    chown system system /dev/mobicore-user
+    # MobiCore Daemon Paths
+    export MC_AUTH_TOKEN_PATH /efs
+    start mobicore
+    write /proc/bootprof "start mobicore end (on fs)"
+    
     mkdir /dev/usb-ffs 0770 shell shell
     mkdir /dev/usb-ffs/adb 0770 shell shell
     mount functionfs adb /dev/usb-ffs/adb uid=2000,gid=2000
 
     write /sys/class/android_usb/android0/enable 0
-    write /sys/class/android_usb/android0/idVendor 18D1
-    write /sys/class/android_usb/android0/idProduct D001
+    write /sys/class/android_usb/android0/idVendor 0BB4
+    write /sys/class/android_usb/android0/idProduct 0c01
     write /sys/class/android_usb/android0/f_ffs/aliases adb
     write /sys/class/android_usb/android0/functions adb
-    write /sys/class/android_usb/android0/iManufacturer ${ro.product.manufacturer}
-    write /sys/class/android_usb/android0/iProduct ${ro.product.model}
-    write /sys/class/android_usb/android0/iSerial ${ro.serialno}
 
 on boot
     ifup lo
@@ -107,3 +117,10 @@ on property:service.adb.root=1
     write /sys/class/android_usb/android0/enable 0
     restart adbd
     write /sys/class/android_usb/android0/enable 1
+
+# Start Daemon (Registry directories should already be present)
+service mobicore /system/bin/mcDriverDaemon -r /system/app/mcRegistry/020f0000000000000000000000000000.drbin -r /system/app/mcRegistry/05120000000000000000000000000000.drbin -r /system/app/mcRegistry/070b0000000000000000000000000000.drbin
+        user system
+        group system
+        class core
+        oneshot

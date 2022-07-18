@@ -32,7 +32,7 @@ int expect(const char* expr_str, const char* expected, int* errors) {
 
     int error_count = parse_string(expr_str, &e, &error_count);
     if (error > 0 || error_count > 0) {
-        printf("error parsing \"%s\" (%d errors)\n",
+        fprintf(stderr, "error parsing \"%s\" (%d errors)\n",
                expr_str, error_count);
         ++*errors;
         return 0;
@@ -47,7 +47,7 @@ int expect(const char* expr_str, const char* expected, int* errors) {
     free(state.errmsg);
     free(state.script);
     if (result == NULL && expected != NULL) {
-        printf("error evaluating \"%s\"\n", expr_str);
+        fprintf(stderr, "error evaluating \"%s\"\n", expr_str);
         ++*errors;
         return 0;
     }
@@ -57,7 +57,7 @@ int expect(const char* expr_str, const char* expected, int* errors) {
     }
 
     if (strcmp(result, expected) != 0) {
-        printf("evaluating \"%s\": expected \"%s\", got \"%s\"\n",
+        fprintf(stderr, "evaluating \"%s\": expected \"%s\", got \"%s\"\n",
                expr_str, expected, result);
         ++*errors;
         free(result);

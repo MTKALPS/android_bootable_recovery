@@ -33,6 +33,7 @@ Volume* volume_for_path(const char* path);
 // success (volume is mounted).
 int ensure_path_mounted(const char* path);
 
+int ensure_ubi_attach(const char* path);
 // Make sure that the volume 'path' is on is mounted.  Returns 0 on
 // success (volume is unmounted);
 int ensure_path_unmounted(const char* path);
@@ -50,6 +51,24 @@ int setup_install_mounts();
 // to wipe. Returns -1 on failure, 1 if the partition was wiped
 // and 0 if the partition was not wiped.
 int erase_persistent_partition();
+
+#if defined (UBIFS_SUPPORT)
+time_t gettime(void);
+
+int wait_for_file(const char *filename, int timeout);
+
+static int ubi_dev_read_int(int dev, const char *file, int def);
+
+int ubi_attach_mtd_user(const char *mount_point);
+
+int ubi_detach_dev(int dev);
+
+int ubi_mkvol_user(const char *mount_point);
+
+int ubi_rmvol_user(const char *mount_point);
+
+int ubi_format(const char *mount_point);
+#endif
 
 #ifdef __cplusplus
 }

@@ -43,6 +43,14 @@ int SpaceMode(int argc, char** argv) {
     return CacheSizeCheck(bytes);
 }
 
+int TeeUpdateMode(int argc, char** argv) {
+    //if (false) {
+        //return 2;
+    //}
+	
+    return TeeUpdate(argv[2],argv[3]);
+}
+
 // Parse arguments (which should be of the form "<sha1>" or
 // "<sha1>:<filename>" into the new parallel arrays *sha1s and
 // *patches (loading file contents into the patches).  Returns 0 on
@@ -203,6 +211,8 @@ int main(int argc, char** argv) {
         result = CheckMode(argc, argv);
     } else if (strncmp(argv[1], "-s", 3) == 0) {
         result = SpaceMode(argc, argv);
+    } else if (strncmp(argv[1], "-t", 3) == 0) {
+        result = TeeUpdateMode(argc, argv);
     } else {
         result = PatchMode(argc, argv);
     }

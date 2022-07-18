@@ -136,12 +136,14 @@ static int sysMapBlockFile(FILE* mapf, MemMapping* pMap)
         int start, end;
         if (fscanf(mapf, "%d %d\n", &start, &end) != 2) {
             LOGW("failed to parse range %d in block map\n", i);
+            close(fd);
             return -1;
         }
 
         void* addr = mmap64(next, (end-start)*blksize, PROT_READ, MAP_PRIVATE | MAP_FIXED, fd, ((off64_t)start)*blksize);
         if (addr == MAP_FAILED) {
             LOGW("failed to map block %d: %s\n", i, strerror(errno));
+            close(fd);
             return -1;
         }
         pMap->ranges[i].addr = addr;
@@ -152,7 +154,7 @@ static int sysMapBlockFile(FILE* mapf, MemMapping* pMap)
 
     pMap->addr = reserve;
     pMap->length = size;
-
+    close(fd);
     LOGI("mmapped %d ranges\n", range_count);
 
     return 0;

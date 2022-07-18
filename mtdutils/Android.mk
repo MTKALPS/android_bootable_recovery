@@ -6,6 +6,7 @@ LOCAL_SRC_FILES := \
 	mounts.c
 
 LOCAL_MODULE := libmtdutils
+LOCAL_MULTILIB := both
 
 include $(BUILD_STATIC_LIBRARY)
 

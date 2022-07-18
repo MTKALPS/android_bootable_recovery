@@ -37,5 +37,6 @@ LOCAL_SRC_FILES := $(edify_src_files)
 LOCAL_CFLAGS := $(edify_cflags)
 LOCAL_CFLAGS += -Wno-unused-parameter
 LOCAL_MODULE := libedify
+LOCAL_MULTILIB := both
 
 include $(BUILD_STATIC_LIBRARY)

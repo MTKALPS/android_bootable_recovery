@@ -34,6 +34,9 @@
 #include "mincrypt/sha.h"
 #include "minzip/DirUtil.h"
 #include "updater.h"
+#if 1 //wschen 2014-09-18
+#include "common.h"
+#endif
 
 #define BLOCKSIZE 4096
 
@@ -372,6 +375,66 @@ static void LoadSrcTgtVersion2(char* wordsave, RangeSet** tgt, int* src_blocks,
     }
 }
 
+
+#if 1 //wschen 2014-09-18
+#define SYSTEM_INDEX 0
+#define CUSTOM_INDEX 1
+#define VENDOR_INDEX 2
+
+static char *get_block_device(const char *partition) {
+    int fd = open("/dev/block/platform/mtk-msdc.0/by-name/para", O_RDONLY);
+    if (fd == -1) {
+        //DUMCHAR_INFO
+        FILE *dum;
+        char buf[512];
+        char p_name[32], p_size[32], p_addr[32], p_actname[64];
+        unsigned int p_type;
+        char dev[3][64];
+        dum = fopen("/proc/dumchar_info", "r");
+        if (dum) {
+            if (fgets(buf, sizeof(buf), dum) != NULL) {
+                while (fgets(buf, sizeof(buf), dum)) {
+                    if (sscanf(buf, "%s %s %s %d %s", p_name, p_size, p_addr, &p_type, p_actname) == 5) {
+                        if (!strcmp(p_name, "bmtpool")) {
+                            break;
+                        }
+                        if (!strcmp(p_name, "android")) {
+                            snprintf(dev[SYSTEM_INDEX], sizeof(dev[SYSTEM_INDEX]), "%s", p_actname);
+                        } else if (!strcmp(p_name, "custom")) {
+                            snprintf(dev[CUSTOM_INDEX], sizeof(dev[CUSTOM_INDEX]), "%s", p_actname);
+                        } else if (!strcmp(p_name, "vendor")) {
+                            snprintf(dev[VENDOR_INDEX], sizeof(dev[VENDOR_INDEX]), "%s", p_actname);
+                        }
+                    }
+                }
+            }
+            fclose(dum);
+            if (!strcmp(partition, "system")) {
+                return strdup(dev[SYSTEM_INDEX]);
+            } else if (!strcmp(partition, "custom")) {
+                return strdup(dev[CUSTOM_INDEX]);
+            } else if (!strcmp(partition, "vendor")) {
+                return strdup(dev[VENDOR_INDEX]);
+            }
+        } else {
+            printf("open /proc/dumchar_info fail (%s)\n", strerror(errno));
+        }
+    } else {
+        close(fd);
+        //GPT
+        if (!strcmp(partition, "system")) {
+            return strdup(SYSTEM_PART);
+        } else if (!strcmp(partition, "custom")) {
+            return strdup(CUSTOM_PART);
+        } else if (!strcmp(partition, "vendor")) {
+            return strdup(VENDOR_PART);
+        }
+    }
+    return NULL;
+}
+#endif
+
+
 // args:
 //    - block device (or file) to modify in-place
 //    - transfer list (blob)
@@ -395,6 +458,13 @@ Value* BlockImageUpdateFn(const char* name, State* state, int argc, Expr* argv[]
         ErrorAbort(state, "blockdev_filename argument to %s must be string", name);
         goto done;
     }
+#if 1 //wschen 2014-09-18
+    if (blockdev_filename->data) {
+        char *data = blockdev_filename->data;
+        blockdev_filename->data = get_block_device(blockdev_filename->data);
+        free(data);
+    }
+#endif
     if (transfer_list_value->type != VAL_BLOB) {
         ErrorAbort(state, "transfer_list argument to %s must be blob", name);
         goto done;
@@ -765,6 +835,13 @@ Value* RangeSha1Fn(const char* name, State* state, int argc, Expr* argv[]) {
         ErrorAbort(state, "blockdev_filename argument to %s must be string", name);
         goto done;
     }
+#if 1 //wschen 2014-09-18
+    if (blockdev_filename->data) {
+        char *data = blockdev_filename->data;
+        blockdev_filename->data = get_block_device(blockdev_filename->data);
+        free(data);
+    }
+#endif
     if (ranges->type != VAL_STRING) {
         ErrorAbort(state, "ranges argument to %s must be string", name);
         goto done;

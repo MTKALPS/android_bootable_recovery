@@ -78,6 +78,142 @@ static void set_displayed_framebuffer(unsigned n)
     displayed_buffer = n;
 }
 
+/* MTK rorate --- */
+static GRSurface* gr_canvas = NULL;
+static int rotate_index=-1;
+
+static void print_surface_info(GRSurface *s, const char *name)
+{
+    printf("[graphics] %s > Height:%d, Width:%d, PixelBytes:%d, RowBytes:%d, Size:%d\n",
+        name, s->height, s->width, s->pixel_bytes, s->row_bytes, s->height* s->row_bytes);
+}
+
+// Read configuration from MTK_LCM_PHYSICAL_ROTATION
+static int rotate_config(GRSurface *gr_draw)
+{
+    if (rotate_index<0)
+    {
+        if (gr_draw->pixel_bytes != 4) rotate_index=0; // support 4 bytes pixel only
+        else if (0 == strncmp(MTK_LCM_PHYSICAL_ROTATION, "90", 2)) rotate_index=1;
+        else if (0 == strncmp(MTK_LCM_PHYSICAL_ROTATION, "180", 3)) rotate_index=2;
+        else if (0 == strncmp(MTK_LCM_PHYSICAL_ROTATION, "270", 3)) rotate_index=3;
+        else rotate_index=0;
+        printf("[graphics] rotate_config %d %s\n", rotate_index, MTK_LCM_PHYSICAL_ROTATION);
+    }
+    return rotate_index;
+}
+
+#define swap(x, y, type) {type z; z=x; x=y; y=z;}
+
+// Allocate and setup the canvas object
+static void rotate_canvas_init(GRSurface *gr_draw)
+{
+    gr_canvas = (GRSurface*) malloc(sizeof(GRSurface));
+    memcpy(gr_canvas, gr_draw, sizeof(GRSurface));
+
+    // Swap canvas' height and width, if the rotate angle is 90" or 270"
+    if (rotate_config(gr_draw)%2) {
+        swap(gr_canvas->width, gr_canvas->height, int);
+        gr_canvas->row_bytes = gr_canvas->width * gr_canvas->pixel_bytes;
+    }
+
+    gr_canvas->data = (unsigned char*) malloc(gr_canvas->height * gr_canvas->row_bytes);
+    memset(gr_canvas->data,  0, gr_canvas->height * gr_canvas->row_bytes);
+
+    print_surface_info(gr_draw, "gr_draw");
+    print_surface_info(gr_canvas, "gr_canvas");
+}
+
+// Cleanup the canvas
+void rotate_canvas_exit(void)
+{
+    if (gr_canvas) {
+        if (gr_canvas->data)
+            free(gr_canvas->data);
+        free(gr_canvas);
+    }
+    gr_canvas=NULL;
+}
+
+// Return the canvas object
+GRSurface *rotate_canvas_get(GRSurface *gr_draw)
+{
+    // Initialize the canvas, if it was not exist.
+    if (gr_canvas==NULL)
+        rotate_canvas_init(gr_draw);
+    return gr_canvas;
+}
+
+// Surface Rotate Routines
+static void rotate_surface_0(GRSurface *dst, GRSurface *src)
+{
+    memcpy(dst->data, src->data, src->height*src->row_bytes);
+}
+
+static void rotate_surface_270(GRSurface *dst, GRSurface *src)
+{
+    int v, w, h;
+    unsigned int *src_pixel;
+    unsigned int *dst_pixel;
+
+    for (h=0, v=src->width-1; h<dst->height; h++, v--) {
+        for (w=0; w<dst->width; w++) {
+            dst_pixel = (unsigned int *)(dst->data + dst->row_bytes*h);
+            src_pixel = (unsigned int *)(src->data + src->row_bytes*w);
+            *(dst_pixel+w)=*(src_pixel+v);
+        }
+    }
+}
+
+static void rotate_surface_180(GRSurface *dst, GRSurface *src)
+{
+    int v, w, k, h;
+    unsigned int *src_pixel;
+    unsigned int *dst_pixel;
+
+    for (h=0, k=src->height-1; h<dst->height && k>=0 ; h++, k--) {
+        dst_pixel = (unsigned int *)(dst->data + dst->row_bytes*h);
+        src_pixel = (unsigned int *)(src->data + src->row_bytes*k);
+        for (w=0, v=src->width-1; w<dst->width && v>=0; w++, v--) {
+            *(dst_pixel+w)=*(src_pixel+v);
+        }
+    }
+}
+
+static void rotate_surface_90(GRSurface *dst, GRSurface *src)
+{
+    int w, k, h;
+    unsigned int *src_pixel;
+    unsigned int *dst_pixel;
+
+    for (h=0; h<dst->height; h++) {
+        for (w=0, k=src->height-1; w<dst->width; w++, k--) {
+            dst_pixel = (unsigned int *)(dst->data + dst->row_bytes*h);
+            src_pixel = (unsigned int *)(src->data + src->row_bytes*k);
+            *(dst_pixel+w)=*(src_pixel+h);
+        }
+    }
+}
+
+typedef void (*rotate_surface_t) (GRSurface *, GRSurface *);
+
+rotate_surface_t rotate_func[4]=
+{
+    rotate_surface_0,
+    rotate_surface_90,
+    rotate_surface_180,
+    rotate_surface_270
+};
+
+// rotate and copy src* surface to dst surface
+void rotate_surface(GRSurface *dst, GRSurface *src)
+{
+    rotate_surface_t rotate;
+    rotate=rotate_func[rotate_config(dst)];
+    rotate(dst, src);
+}
+/* --- MTK rorate */
+
 static gr_surface fbdev_init(minui_backend* backend) {
     int fd;
     void *bits;
@@ -140,8 +276,12 @@ static gr_surface fbdev_init(minui_backend* backend) {
     memset(gr_framebuffer[0].data, 0, gr_framebuffer[0].height * gr_framebuffer[0].row_bytes);
 
     /* check if we can use double buffering */
+    printf("[graphics] vi.yres * fi.line_length = %d * %d * 2 = %d, fi.smem_len=%d\n",
+        vi.yres, fi.line_length, vi.yres * fi.line_length * 2, fi.smem_len);
+
     if (vi.yres * fi.line_length * 2 <= fi.smem_len) {
         double_buffered = true;
+        printf("[graphics] double buffered\n");
 
         memcpy(gr_framebuffer+1, gr_framebuffer, sizeof(GRSurface));
         gr_framebuffer[1].data = gr_framebuffer[0].data +
@@ -151,7 +291,7 @@ static gr_surface fbdev_init(minui_backend* backend) {
 
     } else {
         double_buffered = false;
-
+        printf("[graphics] without double buffer\n");
         // Without double-buffering, we allocate RAM for a buffer to
         // draw in, and then "flipping" the buffer consists of a
         // memcpy from the buffer we allocated to the framebuffer.
@@ -174,10 +314,13 @@ static gr_surface fbdev_init(minui_backend* backend) {
     fbdev_blank(backend, true);
     fbdev_blank(backend, false);
 
-    return gr_draw;
+    return rotate_canvas_get(gr_draw);
 }
 
 static gr_surface fbdev_flip(minui_backend* backend __unused) {
+/* MTK rorate --- */
+    rotate_surface(gr_draw, rotate_canvas_get(gr_draw));
+/* --- MTK rorate */
     if (double_buffered) {
 #if defined(RECOVERY_BGRA)
         // In case of BGRA, do some byte swapping
@@ -214,13 +357,15 @@ static gr_surface fbdev_flip(minui_backend* backend __unused) {
                gr_draw->height * gr_draw->row_bytes);
 #endif
     }
-    return gr_draw;
+    return rotate_canvas_get(gr_draw);
 }
 
 static void fbdev_exit(minui_backend* backend __unused) {
     close(fb_fd);
     fb_fd = -1;
-
+/* MTK rorate --- */
+    rotate_canvas_exit();
+/* --- MTK rorate */
     if (!double_buffered && gr_draw) {
         free(gr_draw->data);
         free(gr_draw);

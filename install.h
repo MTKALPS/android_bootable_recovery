@@ -23,7 +23,25 @@
 extern "C" {
 #endif
 
+#if 0 //wschen 2012-07-10
 enum { INSTALL_SUCCESS, INSTALL_ERROR, INSTALL_CORRUPT, INSTALL_NONE };
+#else
+enum
+{
+    INSTALL_SUCCESS,
+    INSTALL_ERROR,
+    INSTALL_CORRUPT,
+    INSTALL_NONE,
+    INSTALL_NO_SDCARD,
+    INSTALL_NO_KEY,
+    INSTALL_NO_UPDATE_PACKAGE,
+    INSTALL_SIGNATURE_ERROR,
+    INSTALL_FILE_SYSTEM_ERROR,
+    INSTALL_SECURE_CHECK_FAIL,
+    INSTALL_SECURE_INFO_NOT_FOUND,
+};
+#endif
+
 // Install the package specified by root_path.  If INSTALL_SUCCESS is
 // returned and *wipe_cache is true on exit, caller should wipe the
 // cache partition.
